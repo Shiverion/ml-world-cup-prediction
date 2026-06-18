@@ -6,16 +6,19 @@ The project predicts match-level probabilities first, then aggregates those prob
 
 ## Current Status
 
-This repository contains an MVP foundation:
+This repository contains an end-to-end Streamlit app and prediction pipeline:
 
 - Data loading and cleaning helpers
 - Time-aware Elo ratings
 - Time-aware rolling-form features
 - FIFA ranking merge without future leakage
-- Baseline model factories
+- Conservative model comparison and backtesting
 - World Cup rolling backtest utilities
 - Match probability metrics
-- 48-team tournament simulation primitives
+- 48-team tournament simulation with fixed 2026 knockout bracket
+- Elo-scaled Poisson scoreline simulation
+- Live group-result locking for in-tournament updates
+- Streamlit dashboard with probabilities, group standings, and bracket views
 - Focused unit tests for leakage-sensitive logic
 
 The 2026 FIFA World Cup started on June 11, 2026. To produce a true pre-tournament forecast, configure a data cutoff before that date. If you include matches after kickoff, treat the output as a live-updating forecast instead.
@@ -37,8 +40,36 @@ src/worldcup_prediction/
   backtest.py          # rolling World Cup validation
   simulator.py         # group and knockout Monte Carlo simulation
 app/
-  streamlit_app.py     # lightweight dashboard entry point
+  streamlit_app.py     # dashboard entry point
+scripts/
+  download_data.py     # downloads public input feeds
+  run_analysis.py      # builds backtests and simulation outputs
+  update_live.py       # one-command live refresh
 tests/                 # unit tests
+```
+
+## Streamlit Cloud Deploy
+
+Use these settings in Streamlit Community Cloud:
+
+```text
+Repository: Shiverion/ml-world-cup-prediction
+Branch: main
+Main file path: app/streamlit_app.py
+```
+
+The repo does not commit raw data or generated forecast CSVs. On first deploy, open the app and click:
+
+```text
+Update live data
+```
+
+That button downloads public data, rebuilds live predictions, and reloads the generated CSV outputs. The update can take a few minutes because it reruns backtests and simulations.
+
+For local development:
+
+```powershell
+streamlit run app/streamlit_app.py
 ```
 
 ## Data Inputs
@@ -88,11 +119,10 @@ Then run:
 python scripts/run_analysis.py
 ```
 
-For live tournament updates, refresh the public feeds and run:
+For live tournament updates from the command line:
 
 ```powershell
-python scripts/download_data.py
-python scripts/run_analysis.py --live
+python scripts/update_live.py
 ```
 
 The pipeline writes cleaned data and features to `data/processed/`, rolling backtests to `outputs/backtest_results/model_backtest.csv`, and simulation outputs under `outputs/simulations/`.
@@ -109,12 +139,32 @@ Live mode writes the same files with a `_live` suffix.
 
 Tournament simulation currently uses an Elo-scaled independent Poisson scoreline model for future fixtures. The match-level ML backtests and training table are still produced from the configured feature set.
 
+The dashboard includes:
+
+- team tournament probabilities
+- group position probabilities
+- FIFA-style knockout bracket chart
+- rolling World Cup backtest comparison
+- one-click live data refresh
+
 Current downloader sources:
 
 - Match results: `martj42/international_results`, filtered to completed matches only.
 - FIFA rankings: `Dato-Futbol/fifa-ranking`, normalized to `rank_date, team, rank, points`.
+- 2026 fixtures/results: `openfootball/worldcup.json`.
 
 As of the last checked download, match results run through 2026-06-16 and FIFA rankings run through 2024-09-19.
+
+## Model Notes
+
+The current primary model is configured in `configs/model_config.yaml`:
+
+```yaml
+primary_model: logistic_plain_c0_5
+primary_metric: log_loss
+```
+
+The selected model is the conservative winner on average log loss across rolling World Cup windows. Accuracy is tracked, but model selection prioritizes probability quality because tournament simulation depends on calibrated probabilities.
 
 ## Example Pipeline
 
