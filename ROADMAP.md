@@ -55,17 +55,19 @@ simulation_predictor: elo_poisson
 
 ### Pre-Tournament
 
-Uses the configured cutoff before the tournament:
+Pre-tournament mode is a frozen before-kickoff forecast. It uses the configured cutoff before the tournament:
 
 ```yaml
 data_cutoff: "2026-06-11"
 ```
 
-This is the mode for a frozen forecast made before kickoff.
+It does not lock any completed 2026 match result into the tournament table. Every group match, qualifier path, knockout match, finalist, and champion outcome is simulated from the configured team strengths and tournament structure. This makes it the right comparison point for measuring how expectations changed once real matches started.
 
 ### Live
 
-Uses the 2026 fixture/results feed to lock completed group-stage results, then simulates only the remaining matches.
+Live mode is a refreshed in-tournament forecast. It uses the 2026 fixture/results feed to lock completed group-stage results with their actual scores, then simulates only the remaining group matches and downstream knockout paths.
+
+Live outputs are written with a `_live` suffix. They update only when the live refresh command or Streamlit button runs and the public source feed has new results.
 
 Run locally:
 

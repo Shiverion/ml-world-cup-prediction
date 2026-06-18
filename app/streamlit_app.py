@@ -332,6 +332,19 @@ forecast_options = {
         "bracket": bracket_path,
     },
 }
+forecast_descriptions = {
+    "Live": (
+        "Uses the latest downloaded 2026 fixture/results feed. Completed group-stage "
+        "matches are locked into the standings, then remaining group matches and the "
+        "knockout bracket are simulated. It changes only after a live update rebuilds "
+        "the generated files."
+    ),
+    "Pre-tournament": (
+        "Frozen before-kickoff forecast. No 2026 completed-match results are locked; "
+        "the full tournament is simulated from the configured groups, bracket, team "
+        "strength ratings, and model assumptions."
+    ),
+}
 available_options = {
     label: paths
     for label, paths in forecast_options.items()
@@ -360,10 +373,12 @@ if available_options:
     selected_label = st.sidebar.radio("Forecast", list(available_options), index=default_index)
     selected_paths = available_options[selected_label]
     st.sidebar.caption(f"Showing {selected_label.lower()} outputs")
+    st.sidebar.info(forecast_descriptions[selected_label])
     st.sidebar.caption(f"Last generated: {modified_time(selected_paths['team'])}")
 else:
     selected_label = "None"
     selected_paths = {}
+    st.sidebar.warning("No generated forecast files found. Click Update live data to build live outputs.")
 
 prob_tab, group_tab, bracket_tab, backtest_tab = st.tabs(
     ["Probabilities", "Group Standings", "Knockout Bracket", "Backtests"]

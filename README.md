@@ -58,13 +58,15 @@ Branch: main
 Main file path: app/streamlit_app.py
 ```
 
-The repo does not commit raw data or generated forecast CSVs. On first deploy, open the app and click:
+The repo commits small bootstrap forecast CSVs so the deployed dashboard can render immediately. Raw downloaded data and processed feature tables are not committed.
+
+To refresh the deployed forecast, open the app and click:
 
 ```text
 Update live data
 ```
 
-That button downloads public data, rebuilds live predictions, and reloads the generated CSV outputs. The update can take a few minutes because it reruns backtests and simulations.
+That button downloads public data, rebuilds live predictions, and reloads the generated CSV outputs. The update can take a few minutes because it reruns data preparation, backtests, and simulations.
 
 For local development:
 
@@ -138,6 +140,38 @@ predicted_knockout_bracket_2026.csv
 Live mode writes the same files with a `_live` suffix.
 
 Tournament simulation currently uses an Elo-scaled independent Poisson scoreline model for future fixtures. The match-level ML backtests and training table are still produced from the configured feature set.
+
+## Forecast Modes
+
+The app separates the frozen baseline forecast from the refreshed in-tournament forecast.
+
+### Pre-Tournament
+
+Pre-tournament mode is the before-kickoff snapshot. It is meant to answer: "What did the model expect before any 2026 match results were known?"
+
+In this mode:
+
+- No completed 2026 World Cup results are locked into the standings.
+- Every group and knockout match is simulated.
+- Team strength comes from the configured historical data cutoff, Elo ratings, rankings, and feature/model configuration.
+- Outputs use the base filenames such as `team_probabilities_2026.csv`.
+- The result is useful as a stable benchmark against later live updates.
+
+This mode should use a cutoff before the tournament starts. For the 2026 World Cup, that means before June 11, 2026.
+
+### Live
+
+Live mode is the refreshed forecast after the tournament has started. It is meant to answer: "Given the latest completed matches we have downloaded, what happens from here?"
+
+In this mode:
+
+- The app downloads the public 2026 fixture/results feed.
+- Completed group-stage matches are locked into simulated group tables with their actual scores.
+- Unplayed group matches are simulated with the Elo-scaled Poisson score model.
+- The knockout bracket is simulated from the resulting group qualifiers and fixed 2026 bracket path.
+- Outputs use `_live` filenames such as `team_probabilities_2026_live.csv`.
+
+Live mode is not automatic minute-by-minute score tracking. It changes when `python scripts/update_live.py` runs or when the Streamlit **Update live data** button completes. If the public source feed has not posted a result yet, the app cannot include that result.
 
 The dashboard includes:
 
