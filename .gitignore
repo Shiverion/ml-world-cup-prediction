@@ -23,9 +23,11 @@ outputs/*/*
 !outputs/model_metrics/.gitkeep
 !outputs/backtest_results/
 !outputs/backtest_results/.gitkeep
+!outputs/backtest_results/*.csv
 !outputs/predictions/
 !outputs/predictions/.gitkeep
 !outputs/simulations/
 !outputs/simulations/.gitkeep
+!outputs/simulations/*.csv
 !outputs/figures/
 !outputs/figures/.gitkeep
