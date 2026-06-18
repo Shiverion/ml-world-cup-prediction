@@ -166,6 +166,135 @@ primary_metric: log_loss
 
 The selected model is the conservative winner on average log loss across rolling World Cup windows. Accuracy is tracked, but model selection prioritizes probability quality because tournament simulation depends on calibrated probabilities.
 
+## Methodology
+
+The project separates match prediction from tournament simulation:
+
+1. Historical matches are cleaned and standardized.
+2. Pre-match Elo ratings and form features are generated without future leakage.
+3. Match outcome models are validated on rolling historical World Cup windows.
+4. Team strength is converted into match probabilities and scoreline simulations.
+5. Monte Carlo simulations aggregate match probabilities into group, knockout, finalist, and champion probabilities.
+
+### Match Outcome Models
+
+The model comparison currently includes:
+
+- `logistic`: multinomial logistic regression with balanced class weights
+- `logistic_plain`: multinomial logistic regression without class weighting
+- `logistic_plain_c0_5`: unweighted logistic regression with stronger regularization
+- `logistic_plain_c2`: unweighted logistic regression with weaker regularization
+- `logistic_balanced_c0_5`: balanced logistic regression with stronger regularization
+- `logistic_balanced_c2`: balanced logistic regression with weaker regularization
+- `random_forest`: random forest baseline
+- `hist_gradient_boosting`: histogram gradient boosting classifier
+- `hist_gradient_boosting_l2_1`: histogram gradient boosting with stronger L2 regularization
+
+The current primary model is `logistic_plain_c0_5`. It was selected because it produced the best average log loss in the rolling World Cup validation set. `logistic_plain` had nearly identical performance and slightly higher average accuracy, but the lower log loss is preferred for probability-driven tournament simulation.
+
+### Feature Set
+
+The configured baseline features include:
+
+- Elo difference, absolute Elo difference, and expected Elo score
+- FIFA ranking and ranking-points differences
+- rolling form over recent matches
+- recent goal-difference form
+- rest-days difference
+- neutral-site and home-advantage flags
+- tournament context flags such as friendly, qualifier, World Cup group, and World Cup knockout
+
+All time-dependent features are computed before the match being predicted.
+
+### Validation
+
+Validation uses rolling World Cup windows rather than random splits. For each historical World Cup from 2002 through 2022:
+
+- Train on matches before the tournament starts.
+- Test only on matches from that World Cup.
+- Report log loss, Brier score, accuracy, and top-1 accuracy.
+
+This avoids future leakage and better matches the real forecasting workflow. The downside is that each World Cup test window is small, so single-tournament accuracy can be noisy. Average log loss and Brier score are more important than one-off accuracy spikes.
+
+Current conservative-tuning result:
+
+```text
+Best average log loss: logistic_plain_c0_5
+Average accuracy:      about 56%
+Best single window:    about 64%
+```
+
+These numbers are reasonable for three-way football outcome prediction. They should not be interpreted like binary classification accuracy.
+
+### Tournament Simulation
+
+Tournament simulation uses:
+
+- official 48-team group configuration in `configs/tournament_2026.yaml`
+- fixed 2026 knockout bracket match IDs
+- top-two plus best-third-place qualification
+- simulated group tables with points, goals for, goal difference, wins, and head-to-head tie logic
+- fixed knockout paths after Round of 32 assignment
+
+Future scorelines are simulated with an Elo-scaled independent Poisson model:
+
+- stronger team gets the larger expected-goals share
+- total expected goals are calibrated from historical data unless overridden
+- simulated scorelines drive group points, goal difference, and goals-for tiebreakers
+
+Live mode locks completed group-stage results from the 2026 fixture feed, then simulates only the remaining matches.
+
+### Research Basis
+
+The implementation follows common findings from football prediction literature:
+
+- Elo-style team strength is a strong baseline for international football.
+- Poisson score models are useful because football tournament standings depend on goals, not just win/draw/loss labels.
+- Dixon-Coles style models improve on plain independent Poisson by adjusting low-score dependence and time decay.
+- Probability calibration matters more than raw accuracy when predictions feed a tournament simulator.
+- Time-aware validation is necessary because random splits leak future team strength into historical predictions.
+
+Relevant references and background:
+
+- Dixon and Coles, "Modelling Association Football Scores and Inefficiencies in the Football Betting Market"
+- Zeileis/Groll-style World Cup forecasting work using rankings, ensembles, and simulated tournament paths
+- Recent international-football modeling work comparing Elo/ranking systems and machine-learning classifiers
+- Applied Poisson regression work for football scoreline prediction
+
+### Implemented
+
+- public data downloader
+- data cleaning and team-name standardization
+- Elo feature generation
+- rolling form features
+- FIFA ranking merge without future leakage
+- rolling World Cup backtests
+- conservative model grid
+- independent Poisson scoreline simulation
+- fixed 2026 knockout bracket
+- live group-result locking
+- Streamlit dashboard with one-click live refresh
+- group-position probability output
+- predicted knockout bracket output
+
+### Limitations
+
+- FIFA rankings source currently ends at 2024-09-19.
+- The live score feed is public and may lag real match events.
+- The app is not true minute-by-minute in-match modeling.
+- The current Poisson model is independent Poisson, not Dixon-Coles or bivariate Poisson.
+- Player injuries, squad strength, betting odds, weather, travel, and lineup data are not included.
+- Third-place bracket assignment currently uses a deterministic first-valid solver over configured candidate groups.
+
+### Next Improvements
+
+- Add fresher FIFA rankings or a second ranking source.
+- Add Dixon-Coles or bivariate Poisson score modeling.
+- Add recency-weighted Elo and tune K-factors through time-aware validation.
+- Add market odds or squad value features if reliable public data is available.
+- Cache live updates so Streamlit Cloud refreshes faster.
+- Add scheduled refresh outside the Streamlit request cycle.
+
 ## Example Pipeline
 
 ```python
