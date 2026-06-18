@@ -1,0 +1,50 @@
+target_column: target
+primary_metric: log_loss
+primary_model: logistic_plain_c0_5
+random_seed: 42
+
+baseline_feature_columns:
+  - elo_diff
+  - elo_abs_diff
+  - elo_expected_a
+  - fifa_rank_diff
+  - fifa_points_diff
+  - form_points_diff_5
+  - form_points_diff_10
+  - goal_diff_form_10
+  - is_neutral
+  - team_a_home_advantage
+  - is_friendly
+  - is_qualifier
+  - is_world_cup
+  - is_world_cup_group
+  - is_world_cup_knockout
+  - rest_days_diff
+
+models:
+  logistic:
+    kind: logistic
+  logistic_plain:
+    kind: logistic
+    class_weight:
+  logistic_plain_c0_5:
+    kind: logistic
+    class_weight:
+    C: 0.5
+  logistic_plain_c2:
+    kind: logistic
+    class_weight:
+    C: 2.0
+  logistic_balanced_c0_5:
+    kind: logistic
+    C: 0.5
+  logistic_balanced_c2:
+    kind: logistic
+    C: 2.0
+  random_forest:
+    kind: random_forest
+  hist_gradient_boosting:
+    kind: hist_gradient_boosting
+  hist_gradient_boosting_l2_1:
+    kind: hist_gradient_boosting
+    l2_regularization: 1.0

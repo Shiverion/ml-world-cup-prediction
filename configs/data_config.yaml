@@ -1,0 +1,8 @@
+raw_matches_path: data/raw/international_matches.csv
+raw_rankings_path: data/raw/fifa_rankings.csv
+team_mapping_path: data/external/team_mapping.csv
+processed_matches_path: data/processed/matches_cleaned.csv
+processed_rankings_path: data/processed/rankings_cleaned.csv
+features_path: data/processed/features_match_level.csv
+
+pre_tournament_cutoff: "2026-06-11"

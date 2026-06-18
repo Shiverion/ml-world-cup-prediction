@@ -1,0 +1,123 @@
+name: FIFA World Cup 2026
+mode: pre_tournament
+data_cutoff: "2026-06-11"
+group_count: 12
+teams_per_group: 4
+third_place_qualifiers: 8
+simulation_count: 10000
+simulation_predictor: elo_poisson
+draw_probability: 0.24
+live_results_path: data/raw/world_cup_2026_matches.csv
+
+# Verified online on 2026-06-18. Team names use project-standardized names.
+groups:
+  A: [Mexico, South Africa, South Korea, Czechia]
+  B: [Canada, Bosnia and Herzegovina, Qatar, Switzerland]
+  C: [Brazil, Morocco, Haiti, Scotland]
+  D: [United States, Paraguay, Australia, Turkey]
+  E: [Germany, Curacao, Ivory Coast, Ecuador]
+  F: [Netherlands, Japan, Sweden, Tunisia]
+  G: [Belgium, Egypt, Iran, New Zealand]
+  H: [Spain, Cape Verde, Saudi Arabia, Uruguay]
+  I: [France, Senegal, Iraq, Norway]
+  J: [Argentina, Algeria, Austria, Jordan]
+  K: [Portugal, DR Congo, Uzbekistan, Colombia]
+  L: [England, Croatia, Ghana, Panama]
+# groups_path: data/raw/world_cup_2026_groups.csv
+
+ranking_tiebreakers:
+  - points
+  - goal_difference
+  - goals_for
+  - head_to_head_points
+  - head_to_head_goal_difference
+  - head_to_head_goals_for
+  - random_draw
+
+knockout_bracket:
+  source: FIFA World Cup 2026 knockout-stage match schedule
+  third_place_assignment_strategy: first_valid
+  round_of_32:
+    - match: 73
+      teams:
+        - {group: A, position: 2}
+        - {group: B, position: 2}
+    - match: 74
+      teams:
+        - {group: E, position: 1}
+        - {third_place_from: [A, B, C, D, F]}
+    - match: 75
+      teams:
+        - {group: F, position: 1}
+        - {group: C, position: 2}
+    - match: 76
+      teams:
+        - {group: C, position: 1}
+        - {group: F, position: 2}
+    - match: 77
+      teams:
+        - {group: I, position: 1}
+        - {third_place_from: [C, D, F, G, H]}
+    - match: 78
+      teams:
+        - {group: E, position: 2}
+        - {group: I, position: 2}
+    - match: 79
+      teams:
+        - {group: A, position: 1}
+        - {third_place_from: [C, E, F, H, I]}
+    - match: 80
+      teams:
+        - {group: L, position: 1}
+        - {third_place_from: [E, H, I, J, K]}
+    - match: 81
+      teams:
+        - {group: D, position: 1}
+        - {third_place_from: [B, E, F, I, J]}
+    - match: 82
+      teams:
+        - {group: G, position: 1}
+        - {third_place_from: [A, E, H, I, J]}
+    - match: 83
+      teams:
+        - {group: K, position: 2}
+        - {group: L, position: 2}
+    - match: 84
+      teams:
+        - {group: H, position: 1}
+        - {group: J, position: 2}
+    - match: 85
+      teams:
+        - {group: B, position: 1}
+        - {third_place_from: [E, F, G, I, J]}
+    - match: 86
+      teams:
+        - {group: J, position: 1}
+        - {group: H, position: 2}
+    - match: 87
+      teams:
+        - {group: K, position: 1}
+        - {third_place_from: [D, E, I, J, L]}
+    - match: 88
+      teams:
+        - {group: D, position: 2}
+        - {group: G, position: 2}
+  round_of_16:
+    - {match: 89, winners_of: [73, 75]}
+    - {match: 90, winners_of: [74, 77]}
+    - {match: 91, winners_of: [76, 78]}
+    - {match: 92, winners_of: [79, 80]}
+    - {match: 93, winners_of: [83, 84]}
+    - {match: 94, winners_of: [81, 82]}
+    - {match: 95, winners_of: [86, 88]}
+    - {match: 96, winners_of: [85, 87]}
+  quarterfinals:
+    - {match: 97, winners_of: [89, 90]}
+    - {match: 98, winners_of: [93, 94]}
+    - {match: 99, winners_of: [91, 92]}
+    - {match: 100, winners_of: [95, 96]}
+  semifinals:
+    - {match: 101, winners_of: [97, 98]}
+    - {match: 102, winners_of: [99, 100]}
+  final:
+    - {match: 104, winners_of: [101, 102]}

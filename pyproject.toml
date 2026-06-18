@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "worldcup-prediction"
+version = "0.1.0"
+description = "Time-aware World Cup match prediction and tournament simulation"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "pandas>=2.1",
+  "numpy>=1.26",
+  "scikit-learn>=1.4",
+  "pyyaml>=6.0",
+  "streamlit>=1.35",
+  "plotly>=5.22",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+boosting = ["xgboost>=2.0"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
