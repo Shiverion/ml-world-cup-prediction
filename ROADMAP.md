@@ -4,7 +4,7 @@
 
 Build a machine learning system that predicts match outcome probabilities, scoreline distributions, and tournament progression probabilities for the Men's World Cup.
 
-The core strategy is match-level prediction:
+The core strategy remains match-level prediction:
 
 1. Train models on historical international matches.
 2. Backtest on previous World Cups using only data available before each tournament.
@@ -12,81 +12,274 @@ The core strategy is match-level prediction:
 4. Simulate the tournament many times.
 5. Aggregate group, knockout, finalist, and champion probabilities.
 
-## Review Notes
+## Current Status
 
-The roadmap is directionally strong. The biggest practical issue is data leakage, especially because the current date is June 17, 2026 and the tournament has already started. The project should define two modes:
+The project now has an end-to-end working app and pipeline.
 
-- `pre_tournament`: data cutoff before June 11, 2026.
-- `live`: include completed 2026 matches up to a configured timestamp.
+Implemented:
 
-The second issue is tournament bracket fidelity. The 2026 format sends 12 group winners, 12 runners-up, and 8 third-place teams into the Round of 32. The exact third-place bracket paths are configurable tournament rules, so the simulator should load bracket mappings from config rather than hard-code assumptions.
+- Public data downloader for historical match results, FIFA rankings, and 2026 fixture/results feed.
+- Team-name normalization through `data/external/team_mapping.csv`.
+- Cleaned match and ranking data generation.
+- Time-aware Elo features.
+- Rolling form, rest-day, neutral-site, home-advantage, and tournament-context features.
+- FIFA ranking merge without future leakage.
+- Rolling World Cup backtests from 2002 through 2022.
+- Conservative model comparison grid.
+- Primary model selection by average log loss.
+- Elo-scaled independent Poisson scoreline simulation.
+- Fixed 2026 Round of 32 through final bracket config.
+- Best-third-place qualification simulation.
+- Live mode that locks completed 2026 group-stage results.
+- Team progression probability outputs.
+- Group-position probability outputs.
+- Predicted knockout bracket outputs.
+- Streamlit dashboard with one-click live refresh.
+- FIFA-style knockout bracket visualization.
+- Unit tests for leakage-sensitive and simulator-critical behavior.
 
-The third issue is model scope. Start with Elo, rolling form, FIFA rankings, logistic regression, and calibrated probabilities. XGBoost, Poisson score models, ensembles, and player-level data should come after the leakage-safe baseline works.
+Current primary model:
 
-## MVP Phases
+```yaml
+primary_model: logistic_plain_c0_5
+primary_metric: log_loss
+```
 
-### Phase 1: Data Foundation
+Current simulation model:
 
-- Collect international results.
-- Collect historical FIFA rankings.
-- Create `team_mapping.csv`.
-- Standardize teams, dates, tournaments, score columns, and neutral flags.
-- Generate deterministic match IDs.
+```yaml
+simulation_predictor: elo_poisson
+```
 
-### Phase 2: Time-Aware Features
+## Forecast Modes
 
-- Add pre-match Elo ratings.
-- Merge latest available FIFA ranking before each match.
-- Add rolling form before each match.
-- Add tournament context and rest-day features.
+### Pre-Tournament
 
-### Phase 3: Baselines and ML
+Uses the configured cutoff before the tournament:
 
-- FIFA ranking baseline.
-- Elo logistic baseline.
-- Multinomial logistic regression.
-- Optional random forest and gradient boosting after the first backtest is working.
+```yaml
+data_cutoff: "2026-06-11"
+```
 
-### Phase 4: Backtesting
+This is the mode for a frozen forecast made before kickoff.
 
-Use rolling World Cup validation:
+### Live
+
+Uses the 2026 fixture/results feed to lock completed group-stage results, then simulates only the remaining matches.
+
+Run locally:
+
+```powershell
+python scripts/update_live.py
+```
+
+In the Streamlit app, use:
+
+```text
+Update live data
+```
+
+Live mode is not minute-by-minute in-match modeling. It updates when the public completed-match feed updates.
+
+## Validation Protocol
+
+Validation uses rolling World Cup windows:
 
 ```text
 Train: all matches before World Cup kickoff
 Test: World Cup matches only
 ```
 
+Historical test windows:
+
+- 2002
+- 2006
+- 2010
+- 2014
+- 2018
+- 2022
+
 Primary metrics:
 
 - Log loss
 - Multiclass Brier score
 - Accuracy
+- Top-1 accuracy
 
-### Phase 5: Calibration
+Model selection prioritizes log loss and Brier score because tournament simulation needs useful probabilities, not just the most likely class.
 
-Calibrate the selected model before simulation. A model that is directionally accurate but overconfident will produce poor champion probabilities.
+## Completed Phases
+
+### Phase 1: Data Foundation
+
+Status: complete for baseline.
+
+- International results are downloaded from a public CSV source.
+- FIFA rankings are downloaded and normalized.
+- 2026 fixtures/results are downloaded from a public JSON feed.
+- Team names are standardized.
+- Cleaned data and deterministic match IDs are generated.
+
+Remaining:
+
+- Add fresher FIFA rankings.
+- Add a second source for cross-checking 2026 live results.
+
+### Phase 2: Time-Aware Features
+
+Status: complete for baseline.
+
+- Pre-match Elo ratings.
+- FIFA ranking merge using only rankings available before each match.
+- Rolling form before each match.
+- Rest-day, neutral-site, home-advantage, tournament-context features.
+
+Remaining:
+
+- Add recency-weighted Elo.
+- Tune Elo K-factors through time-aware validation.
+
+### Phase 3: Baselines and ML
+
+Status: complete for conservative baseline.
+
+Compared models:
+
+- balanced multinomial logistic regression
+- unweighted multinomial logistic regression
+- lightly tuned logistic regularization variants
+- random forest
+- histogram gradient boosting
+
+Current result:
+
+- `logistic_plain_c0_5` has the best average log loss.
+- `logistic_plain` has very similar performance and slightly higher average accuracy.
+
+Remaining:
+
+- Add calibration curves and reliability plots.
+- Consider isotonic or Platt calibration only if it improves rolling-window log loss.
+- Avoid broad hyperparameter search until more validation data or stronger features are available.
+
+### Phase 4: Backtesting
+
+Status: complete.
+
+Outputs:
+
+```text
+outputs/backtest_results/model_backtest.csv
+outputs/backtest_results/model_backtest_summary.csv
+```
+
+Remaining:
+
+- Add charts for metric trends by World Cup.
+- Add baseline comparisons against naive ranking-only and Elo-only predictors.
+
+### Phase 5: Scoreline Modeling
+
+Status: baseline implemented.
+
+Implemented:
+
+- Elo-scaled independent Poisson expected goals.
+- Poisson scoreline sampling for group-stage goal difference and goals-for behavior.
+
+Remaining:
+
+- Implement Dixon-Coles adjustment.
+- Test bivariate Poisson or correlated goal models.
+- Validate scoreline distribution against historical World Cup scorelines.
 
 ### Phase 6: Tournament Simulation
 
-- Simulate group stage tables.
-- Advance top two from each group.
-- Advance eight best third-place teams.
-- Simulate Round of 32 through final.
-- Aggregate progression probabilities.
+Status: complete for baseline.
+
+Implemented:
+
+- Group-stage simulation.
+- Locked completed group matches in live mode.
+- Top-two plus eight best third-place qualification.
+- Fixed 2026 knockout match IDs and winner paths.
+- Group-position probability output.
+- Team progression probability output.
+- Predicted knockout bracket output.
+
+Remaining:
+
+- Replace deterministic first-valid third-place slot assignment with the exact official mapping table if FIFA publishes a combination table.
+- Add support for completed knockout matches once the tournament reaches that stage.
 
 ### Phase 7: Dashboard
 
-Build a small Streamlit dashboard:
+Status: complete for first deploy.
 
-- Match predictor
-- Backtest comparison
-- Tournament probabilities
-- Team explorer
+Implemented Streamlit tabs:
+
+- Tournament probabilities.
+- Group position probabilities.
+- FIFA-style knockout bracket.
+- Backtest comparison.
+
+Implemented controls:
+
+- Forecast mode selection.
+- One-click live data update.
+- Generated-file reload.
+
+Remaining:
+
+- Add match-level fixture explorer.
+- Add team detail page.
+- Add data freshness badges per feed.
+- Cache expensive live update steps.
+
+## Research Basis
+
+The current implementation is based on established football prediction practices:
+
+- Elo-style ratings are a strong baseline for international football.
+- Poisson score models are useful because group standings depend on goals, goal difference, and goals for.
+- Dixon-Coles style models are a known improvement over independent Poisson for low-scoring football matches.
+- Probability quality matters more than raw accuracy when predictions are fed into a tournament simulator.
+- Time-aware validation is required to avoid future leakage.
+
+Research and background areas considered:
+
+- Dixon and Coles association football score modeling.
+- Zeileis/Groll-style World Cup forecasting using rankings, ensembles, and simulated tournament paths.
+- International-football ranking and Elo variants.
+- Applied Poisson regression for scoreline prediction.
+- Machine-learning classifiers for three-way match outcomes.
+
+## Known Limitations
+
+- FIFA rankings source currently ends at 2024-09-19.
+- Live score feed may lag real match events.
+- No minute-by-minute in-match state.
+- No player injuries, lineup, market odds, squad value, travel, or weather features.
+- Independent Poisson ignores low-score dependence.
+- Historical World Cup validation has only six 64-match test windows, so single-window accuracy is noisy.
+- Streamlit live update runs inside the app request cycle and can take several minutes.
+
+## Next Priorities
+
+1. Add fresher FIFA rankings or a second ranking source.
+2. Add exact third-place bracket mapping if available from official tournament rules.
+3. Add Dixon-Coles scoreline model and compare against independent Poisson.
+4. Add calibration diagnostics and reliability plots.
+5. Add naive baseline comparisons for ranking-only and Elo-only predictors.
+6. Cache Streamlit live update outputs and surface data freshness by feed.
+7. Add support for completed knockout matches in live mode.
+8. Add team-level detail pages and match fixture explorer.
 
 ## Success Criteria
 
-- Produces match probabilities, not only winners.
+- Produces calibrated match probabilities, not only winners.
 - Beats simple ranking/Elo baselines on log loss or Brier score.
 - Backtests previous World Cups without future data.
-- Simulates 48-team World Cup logic.
+- Simulates 48-team World Cup group and knockout logic.
+- Supports live updates without contaminating pre-tournament forecasts.
 - Documents model limitations clearly.
