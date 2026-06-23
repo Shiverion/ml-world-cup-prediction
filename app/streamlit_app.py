@@ -162,12 +162,15 @@ def match_card(row: pd.Series, left: float, top: float) -> str:
     """
 
 
-def render_bracket_chart(bracket: pd.DataFrame) -> None:
+def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
     match_lookup = {int(row["match"]): row for _, row in bracket.iterrows()}
     card_width = 178
     card_height = 94
     board_width = 2060
     board_height = 1110
+    zoom = max(0.5, min(float(zoom), 1.6))
+    zoomed_width = board_width * zoom
+    zoomed_height = board_height * zoom
     column_x = {
         "left_r32": 20,
         "left_r16": 250,
@@ -277,8 +280,14 @@ def render_bracket_chart(bracket: pd.DataFrame) -> None:
     bracket_html = f"""
         <style>
           .bracket-scroll {{
-            overflow-x: auto;
+            overflow: auto;
             padding: 6px 0 16px;
+            max-height: min(76vh, {zoomed_height + 40:.1f}px);
+          }}
+          .bracket-zoom-frame {{
+            position: relative;
+            width: {zoomed_width:.1f}px;
+            height: {zoomed_height:.1f}px;
           }}
           .bracket-board {{
             position: relative;
@@ -288,6 +297,8 @@ def render_bracket_chart(bracket: pd.DataFrame) -> None:
             border: 1px solid #d8dee9;
             border-radius: 8px;
             box-sizing: border-box;
+            transform: scale({zoom:.3f});
+            transform-origin: top left;
           }}
           .bracket-label {{
             position: absolute;
@@ -357,12 +368,14 @@ def render_bracket_chart(bracket: pd.DataFrame) -> None:
           }}
         </style>
         <div class="bracket-scroll">
-          <div class="bracket-board">
-            {label_html}
-            <svg class="bracket-lines" viewBox="0 0 {board_width} {board_height}" aria-hidden="true">
-              {connector_paths}
-            </svg>
-            {cards}
+          <div class="bracket-zoom-frame">
+            <div class="bracket-board">
+              {label_html}
+              <svg class="bracket-lines" viewBox="0 0 {board_width} {board_height}" aria-hidden="true">
+                {connector_paths}
+              </svg>
+              {cards}
+            </div>
           </div>
         </div>
         """
@@ -533,7 +546,27 @@ with bracket_tab:
     selected_bracket_path = selected_paths.get("bracket") if selected_paths else None
     if selected_bracket_path and selected_bracket_path.exists():
         bracket = pd.read_csv(selected_bracket_path)
-        render_bracket_chart(bracket)
+        if "bracket_zoom" not in st.session_state:
+            st.session_state["bracket_zoom"] = 85
+        zoom_out, zoom_slider, zoom_in, zoom_reset = st.columns([1, 8, 1, 1])
+        with zoom_out:
+            if st.button("-", key="bracket_zoom_out", help="Zoom out"):
+                st.session_state["bracket_zoom"] = max(50, int(st.session_state["bracket_zoom"]) - 10)
+        with zoom_in:
+            if st.button("+", key="bracket_zoom_in", help="Zoom in"):
+                st.session_state["bracket_zoom"] = min(160, int(st.session_state["bracket_zoom"]) + 10)
+        with zoom_reset:
+            if st.button("100", key="bracket_zoom_reset", help="Reset zoom to 100%"):
+                st.session_state["bracket_zoom"] = 100
+        with zoom_slider:
+            st.slider(
+                "Zoom",
+                min_value=50,
+                max_value=160,
+                step=5,
+                key="bracket_zoom",
+            )
+        render_bracket_chart(bracket, zoom=int(st.session_state["bracket_zoom"]) / 100.0)
         round_names = list(bracket["round"].drop_duplicates())
         round_name = st.selectbox("Inspect round", round_names)
         round_frame = bracket[bracket["round"] == round_name].copy()

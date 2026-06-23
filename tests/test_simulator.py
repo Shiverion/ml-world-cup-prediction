@@ -1,4 +1,7 @@
+from pathlib import Path
+
 import numpy as np
+import pandas as pd
 import pytest
 
 from worldcup_prediction.simulator import (
@@ -129,6 +132,43 @@ def test_build_round_of_32_bracket_uses_configured_slots():
             "team_b": group_table[(group_table["group"] == "A") & (group_table["position"] == 3)].iloc[0]["team"],
         }
     ]
+
+
+def test_build_round_of_32_bracket_uses_official_third_place_table():
+    rows = []
+    for group in "ABCDEFGH":
+        for position in range(1, 5):
+            rows.append(
+                {
+                    "group": group,
+                    "position": position,
+                    "team": f"{group}{position}",
+                    "points": 5 - position,
+                    "goals_for": 5 - position,
+                    "goal_difference": 5 - position,
+                    "wins": 0,
+                }
+            )
+    group_table = pd.DataFrame(rows)
+    bracket_config = {
+        "third_place_assignment_strategy": "official_table",
+        "third_place_mapping_path": str(
+            Path(__file__).resolve().parents[1] / "data" / "external" / "fwc2026_third_place_annex_c.csv"
+        ),
+        "round_of_32": [
+            {
+                "match": 79,
+                "teams": [
+                    {"group": "A", "position": 1},
+                    {"third_place_from": ["C", "E", "F", "H", "I"]},
+                ],
+            }
+        ],
+    }
+
+    bracket = build_round_of_32_bracket(group_table, bracket_config, third_place_count=8)
+
+    assert bracket == [{"match": 79, "team_a": "A1", "team_b": "H3"}]
 
 
 def test_simulate_tournament_keeps_fixed_knockout_bracket_between_rounds():

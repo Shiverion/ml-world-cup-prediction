@@ -17,7 +17,8 @@ This repository contains an end-to-end Streamlit app and prediction pipeline:
 - Match probability metrics including log loss, Brier score, and ranked probability score
 - Calibration diagnostics, baseline comparison, ablation study, and nested model-selection backtest reports
 - 48-team tournament simulation with fixed 2026 knockout bracket
-- Elo-scaled Poisson scoreline simulation
+- ML-driven tournament simulation with an Elo-scaled Poisson baseline option
+- Official FIFA Annex C third-place Round-of-32 assignment table
 - Monte Carlo simulation intervals across deterministic seed runs
 - Forecast registry with model card, config, git commit, and output snapshots
 - Live group-result locking for in-tournament updates
@@ -161,7 +162,7 @@ team_probabilities_2026_with_ci.csv
 
 Live mode writes the same files with a `_live` suffix, including `match_probabilities_2026_live.csv` and `team_probabilities_2026_live_with_ci.csv`.
 
-Tournament simulation currently uses an Elo-scaled independent Poisson scoreline model for future fixtures. The match-level ML backtests and training table are still produced from the configured feature set.
+Tournament simulation now uses the configured primary ML model as the default match-outcome probability engine (`simulation_predictor: ml_outcome`). Scorelines needed for group tables are sampled conditionally from the predicted win/draw/loss outcome. The Elo-scaled independent Poisson simulator remains available as a baseline via `simulation_predictor: elo_poisson`.
 
 ## Forecast Modes
 
@@ -189,7 +190,7 @@ In this mode:
 
 - The app downloads the public 2026 fixture/results feed.
 - Completed group-stage matches are locked into simulated group tables with their actual scores.
-- Unplayed group matches are simulated with the Elo-scaled Poisson score model.
+- Unplayed group matches are simulated with the configured match-outcome probability engine.
 - The knockout bracket is simulated from the resulting group qualifiers and fixed 2026 bracket path.
 - Outputs use `_live` filenames such as `team_probabilities_2026_live.csv`.
 
@@ -210,10 +211,10 @@ The dashboard includes:
 Current downloader sources:
 
 - Match results: `martj42/international_results`, filtered to completed matches only.
-- FIFA rankings: `Dato-Futbol/fifa-ranking`, normalized to `rank_date, team, rank, points`.
+- FIFA rankings: `Dato-Futbol/fifa-ranking` for the historical feed plus the official FIFA ranking API for the latest snapshot, normalized to `rank_date, team, rank, points`.
 - 2026 fixtures/results: `openfootball/worldcup.json`.
 
-As of the last checked download, match results run through 2026-06-16 and FIFA rankings run through 2024-09-19.
+As of the last checked download, match results run through 2026-06-22 and FIFA rankings run through the official 2026-06-11 snapshot. The tournament config keeps match training strict-before the 2026-06-11 kickoff cutoff while allowing the same-day official ranking snapshot for simulation strength features.
 
 ## Model Notes
 
@@ -240,7 +241,7 @@ The project separates match prediction from tournament simulation:
 2. Pre-match Elo ratings and form features are generated without future leakage.
 3. Match outcome models are validated on rolling historical World Cup windows.
 4. Baselines, ablations, nested model selection, and calibration diagnostics are written as reproducible CSV reports.
-5. Team strength is converted into match probabilities and scoreline simulations.
+5. The primary ML model converts team-strength, ranking, form, and context features into match-outcome probabilities.
 6. Monte Carlo simulations aggregate match probabilities into group, knockout, finalist, and champion probabilities.
 7. Forecast snapshots are versioned by cutoff, config, git commit, match probabilities, and tournament probabilities.
 
@@ -312,15 +313,16 @@ Tournament simulation uses:
 - fixed 2026 knockout bracket match IDs
 - top-two plus best-third-place qualification
 - simulated group tables with points, goals for, goal difference, wins, and head-to-head tie logic
-- fixed knockout paths after Round of 32 assignment
+- FIFA Annex C mapping for the 495 possible best-third-place Round-of-32 assignments
+- fixed knockout paths after Round-of-32 assignment
 
-Future scorelines are simulated with an Elo-scaled independent Poisson model:
+By default, match outcome probabilities are produced by the configured primary ML model:
 
-- stronger team gets the larger expected-goals share
-- total expected goals are calibrated from historical data unless overridden
-- simulated scorelines drive group points, goal difference, and goals-for tiebreakers
+- Elo, FIFA ranking, rolling form, and context features are built for each simulated fixture
+- the trained primary model returns three-way win/draw/loss probabilities
+- simulated scorelines are sampled conditionally from the predicted outcome so group points, goal difference, and goals-for tiebreakers remain available
 
-Live mode locks completed group-stage results from the 2026 fixture feed, then simulates only the remaining matches.
+The Elo-scaled independent Poisson simulator remains available as `simulation_predictor: elo_poisson` for scoreline-model baselines. Live mode locks completed group-stage results from the 2026 fixture feed, then simulates only the remaining matches.
 
 Simulation uncertainty is estimated by repeating Monte Carlo runs across deterministic seeds. The default run uses a lighter CI configuration for development speed; increase `simulation_count` and `simulation_interval.simulations_per_seed` in `configs/tournament_2026.yaml` for publication-grade runs.
 
@@ -366,6 +368,7 @@ Relevant references and background:
 ### Implemented
 
 - public data downloader
+- official FIFA latest-ranking snapshot downloader
 - data cleaning and team-name standardization
 - Elo feature generation
 - rolling form features
@@ -376,28 +379,29 @@ Relevant references and background:
 - ablation study reports
 - calibration diagnostics and sharpness report
 - nested model-selection backtest
-- independent Poisson scoreline simulation
+- ML-driven tournament simulation
+- independent Poisson baseline simulation
 - fixed 2026 knockout bracket
+- official Annex C third-place assignment table
 - simulation uncertainty intervals across seeds
 - forecast registry and model card
 - live group-result locking
 - Streamlit dashboard with one-click live refresh
+- Streamlit knockout bracket zoom controls
 - group-position probability output
 - predicted knockout bracket output
 
 ### Limitations
 
-- FIFA rankings source currently ends at 2024-09-19.
 - The live score feed is public and may lag real match events.
 - The app is not true minute-by-minute in-match modeling.
-- The current Poisson model is independent Poisson, not Dixon-Coles or bivariate Poisson.
+- The default ML simulation uses a simple conditional scoreline sampler, not a fitted expected-goals, Dixon-Coles, or bivariate Poisson score model.
 - Player injuries, squad strength, betting odds, weather, travel, and lineup data are not included.
-- Third-place bracket assignment currently uses a deterministic first-valid solver over configured candidate groups.
 
 ### Next Improvements
 
-- Add fresher FIFA rankings or a second ranking source.
 - Add Dixon-Coles or bivariate Poisson score modeling.
+- Add a hybrid ML outcome plus fitted expected-goals scoreline layer.
 - Add recency-weighted Elo and tune K-factors through time-aware validation.
 - Add market odds or squad value features if reliable public data is available.
 - Cache live updates so Streamlit Cloud refreshes faster.

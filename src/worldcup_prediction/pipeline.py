@@ -5,6 +5,7 @@ from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 import pandas as pd
 
 from worldcup_prediction.backtest import DEFAULT_WORLDCUP_WINDOWS, WorldCupWindow, rolling_world_cup_backtest
@@ -19,7 +20,7 @@ from worldcup_prediction.config import CONFIG_DIR, PROJECT_ROOT, RANDOM_SEED
 from worldcup_prediction.data_loader import read_csv, read_yaml, write_csv
 from worldcup_prediction.elo import add_elo_features, default_k_factor, expected_score, match_result_score
 from worldcup_prediction.features import build_feature_table
-from worldcup_prediction.models import DEFAULT_FEATURE_COLUMNS, make_model, train_model
+from worldcup_prediction.models import DEFAULT_FEATURE_COLUMNS, make_model, predict_probabilities, train_model
 from worldcup_prediction.research import (
     deterministic_interval_seeds,
     match_probability_frame,
@@ -77,6 +78,17 @@ def load_teams_by_group(tournament_config: Mapping[str, Any], root: Path = PROJE
     for group, group_frame in frame.groupby("group", sort=False):
         teams_by_group[str(group)] = [str(team) for team in group_frame["team"]]
     return teams_by_group
+
+
+def resolve_knockout_bracket_config(tournament_config: Mapping[str, Any], root: Path = PROJECT_ROOT) -> Mapping[str, Any] | None:
+    bracket_config = tournament_config.get("knockout_bracket")
+    if not isinstance(bracket_config, Mapping):
+        return bracket_config
+    resolved = dict(bracket_config)
+    mapping_path = resolved.get("third_place_mapping_path")
+    if mapping_path:
+        resolved["third_place_mapping_path"] = str(resolve_project_path(str(mapping_path), root))
+    return resolved
 
 
 def completed_group_matches_from_fixture_frame(
@@ -198,6 +210,183 @@ def make_elo_poisson_predictor(
             "team_a_goals_lambda": lambda_a,
             "team_b_goals_lambda": lambda_b,
         }
+
+    return predict
+
+
+def latest_ranking_snapshot(
+    rankings: pd.DataFrame | None,
+    cutoff: pd.Timestamp,
+    inclusive: bool = False,
+) -> dict[str, dict[str, float]]:
+    if rankings is None or rankings.empty:
+        return {}
+    ensure_columns(rankings, ["rank_date", "team", "rank", "points"], "rankings")
+    frame = rankings.copy()
+    frame["rank_date"] = pd.to_datetime(frame["rank_date"], errors="coerce")
+    frame = frame.dropna(subset=["rank_date", "team"])
+    frame = frame[frame["rank_date"] <= cutoff] if inclusive else frame[frame["rank_date"] < cutoff]
+    if frame.empty:
+        return {}
+    latest = frame.sort_values(["team", "rank_date"]).groupby("team", as_index=False).tail(1)
+    return {
+        str(row.team): {
+            "rank": float(row.rank),
+            "points": float(row.points),
+        }
+        for row in latest.itertuples(index=False)
+    }
+
+
+def recent_form_snapshot(
+    matches: pd.DataFrame,
+    cutoff: pd.Timestamp,
+    windows: Sequence[int] = (5, 10, 20),
+) -> dict[str, dict[str, float]]:
+    ensure_columns(matches, ["date", "team_a", "team_b", "team_a_score", "team_b_score"], "matches")
+    frame = matches.copy()
+    frame["date"] = pd.to_datetime(frame["date"], errors="coerce")
+    frame = frame[frame["date"] < cutoff].sort_values(["date", "team_a", "team_b"])
+    history: defaultdict[str, list[dict[str, float]]] = defaultdict(list)
+
+    for row in frame.itertuples(index=False):
+        if row.team_a_score > row.team_b_score:
+            points_a, points_b = 3.0, 0.0
+            win_a, win_b = 1.0, 0.0
+        elif row.team_a_score == row.team_b_score:
+            points_a, points_b = 1.0, 1.0
+            win_a, win_b = 0.0, 0.0
+        else:
+            points_a, points_b = 0.0, 3.0
+            win_a, win_b = 0.0, 1.0
+
+        history[str(row.team_a)].append(
+            {
+                "points": points_a,
+                "win": win_a,
+                "goal_difference": float(row.team_a_score - row.team_b_score),
+            }
+        )
+        history[str(row.team_b)].append(
+            {
+                "points": points_b,
+                "win": win_b,
+                "goal_difference": float(row.team_b_score - row.team_a_score),
+            }
+        )
+
+    snapshot: dict[str, dict[str, float]] = {}
+    for team, team_history in history.items():
+        summary: dict[str, float] = {}
+        for window in windows:
+            recent = team_history[-window:]
+            if not recent:
+                summary[f"points_per_game_last_{window}"] = np.nan
+                summary[f"goal_difference_avg_last_{window}"] = np.nan
+                continue
+            summary[f"points_per_game_last_{window}"] = float(np.mean([item["points"] for item in recent]))
+            summary[f"goal_difference_avg_last_{window}"] = float(
+                np.mean([item["goal_difference"] for item in recent])
+            )
+        snapshot[team] = summary
+    return snapshot
+
+
+def _numeric_difference(left: float | None, right: float | None) -> float:
+    if left is None or right is None or pd.isna(left) or pd.isna(right):
+        return np.nan
+    return float(left) - float(right)
+
+
+def _fixture_context_features(context: Mapping[str, Any] | None) -> dict[str, float]:
+    context = context or {}
+    stage = str(context.get("stage", "")).lower()
+    is_group_match = int((not stage and "group" in context) or "group" in stage)
+    is_knockout = int(any(token in stage for token in ["round", "quarter", "semi", "final", "knockout"]))
+    return {
+        "is_neutral": 1.0,
+        "team_a_home_advantage": 0.0,
+        "is_friendly": 0.0,
+        "is_qualifier": 0.0,
+        "is_world_cup": 1.0,
+        "is_world_cup_group": float(is_group_match),
+        "is_world_cup_knockout": float(is_knockout),
+        "rest_days_diff": 0.0,
+    }
+
+
+def make_ml_outcome_predictor(
+    model: object,
+    ratings: Mapping[str, float],
+    ranking_snapshot: Mapping[str, Mapping[str, float]],
+    form_snapshot: Mapping[str, Mapping[str, float]],
+    feature_columns: Sequence[str],
+    initial_rating: float = 1500.0,
+) -> MatchProbabilityFn:
+    columns = list(feature_columns)
+    cache: dict[tuple[str, str, str], dict[str, float]] = {}
+
+    def form_value(team: str, key: str) -> float:
+        return float(form_snapshot.get(team, {}).get(key, np.nan))
+
+    def ranking_value(team: str, key: str) -> float:
+        return float(ranking_snapshot.get(team, {}).get(key, np.nan))
+
+    def predict(team_a: str, team_b: str, context: Mapping[str, Any] | None = None) -> dict[str, float]:
+        context_features = _fixture_context_features(context)
+        context_key = "group" if context_features["is_world_cup_group"] else str((context or {}).get("stage", "neutral"))
+        cache_key = (team_a, team_b, context_key)
+        if cache_key in cache:
+            return dict(cache[cache_key])
+
+        rating_a = float(ratings.get(team_a, initial_rating))
+        rating_b = float(ratings.get(team_b, initial_rating))
+        rank_a = ranking_value(team_a, "rank")
+        rank_b = ranking_value(team_b, "rank")
+        points_a = ranking_value(team_a, "points")
+        points_b = ranking_value(team_b, "points")
+
+        values: dict[str, float] = {
+            "elo_diff": rating_a - rating_b,
+            "elo_abs_diff": abs(rating_a - rating_b),
+            "elo_expected_a": expected_score(rating_a, rating_b),
+            "fifa_rank_diff": _numeric_difference(rank_b, rank_a),
+            "fifa_points_diff": _numeric_difference(points_a, points_b),
+            "form_points_diff_5": _numeric_difference(
+                form_value(team_a, "points_per_game_last_5"),
+                form_value(team_b, "points_per_game_last_5"),
+            ),
+            "form_points_diff_10": _numeric_difference(
+                form_value(team_a, "points_per_game_last_10"),
+                form_value(team_b, "points_per_game_last_10"),
+            ),
+            "form_points_diff_20": _numeric_difference(
+                form_value(team_a, "points_per_game_last_20"),
+                form_value(team_b, "points_per_game_last_20"),
+            ),
+            "goal_diff_form_5": _numeric_difference(
+                form_value(team_a, "goal_difference_avg_last_5"),
+                form_value(team_b, "goal_difference_avg_last_5"),
+            ),
+            "goal_diff_form_10": _numeric_difference(
+                form_value(team_a, "goal_difference_avg_last_10"),
+                form_value(team_b, "goal_difference_avg_last_10"),
+            ),
+            "goal_diff_form_20": _numeric_difference(
+                form_value(team_a, "goal_difference_avg_last_20"),
+                form_value(team_b, "goal_difference_avg_last_20"),
+            ),
+            **context_features,
+        }
+        fixture_features = pd.DataFrame([{column: values.get(column, np.nan) for column in columns}])
+        probabilities = predict_probabilities(model, fixture_features, columns).iloc[0]
+        result = {
+            "team_a_loss": float(probabilities["team_a_loss"]),
+            "draw": float(probabilities["draw"]),
+            "team_a_win": float(probabilities["team_a_win"]),
+        }
+        cache[cache_key] = result
+        return dict(result)
 
     return predict
 
@@ -503,7 +692,7 @@ def run_analysis(
     if primary_model_name not in model_specs:
         raise ValueError(f"primary_model is not configured under models: {primary_model_name}")
     primary_model_spec = model_specs[primary_model_name]
-    train_model(
+    primary_model = train_model(
         _model_from_spec(
             primary_model_spec,
             primary_model_name,
@@ -521,6 +710,7 @@ def run_analysis(
     match_probabilities_output_path: Path | None = None
     forecast_registry_output_path: Path | None = None
     teams_by_group = load_teams_by_group(tournament_config, root)
+    knockout_bracket = resolve_knockout_bracket_config(tournament_config, root)
     if teams_by_group:
         ratings = final_elo_ratings(matches_clean, cutoff=cutoff)
         rating_frame = matches_clean[pd.to_datetime(matches_clean["date"], errors="coerce") < cutoff]
@@ -538,6 +728,18 @@ def run_analysis(
                 ratings,
                 draw_probability=float(tournament_config.get("draw_probability", 0.24)),
             )
+        elif simulation_predictor == "ml_outcome":
+            predictor = make_ml_outcome_predictor(
+                primary_model,
+                ratings,
+                latest_ranking_snapshot(
+                    rankings_clean,
+                    cutoff,
+                    inclusive=bool(tournament_config.get("ranking_cutoff_inclusive", False)),
+                ),
+                recent_form_snapshot(matches_clean, cutoff),
+                feature_columns,
+            )
         else:
             raise ValueError(f"Unsupported simulation_predictor: {simulation_predictor}")
         simulation_outputs = simulate_tournament_detailed(
@@ -546,7 +748,7 @@ def run_analysis(
             n_simulations=int(tournament_config.get("simulation_count", 10_000)),
             seed=int(model_config.get("random_seed", RANDOM_SEED)),
             third_place_count=int(tournament_config.get("third_place_qualifiers", 8)),
-            knockout_bracket=tournament_config.get("knockout_bracket"),
+            knockout_bracket=knockout_bracket,
             completed_group_matches=completed_group_matches,
         )
         suffix = "_live" if mode == "live" else ""
@@ -582,7 +784,7 @@ def run_analysis(
                         n_simulations=interval_simulation_count,
                         seeds=interval_seeds,
                         third_place_count=int(tournament_config.get("third_place_qualifiers", 8)),
-                        knockout_bracket=tournament_config.get("knockout_bracket"),
+                        knockout_bracket=knockout_bracket,
                         completed_group_matches=completed_group_matches,
                     ),
                     simulation_interval_output_path,

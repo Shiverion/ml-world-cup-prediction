@@ -1,11 +1,12 @@
 name: FIFA World Cup 2026
 mode: pre_tournament
 data_cutoff: "2026-06-11"
+ranking_cutoff_inclusive: true
 group_count: 12
 teams_per_group: 4
 third_place_qualifiers: 8
 simulation_count: 3000
-simulation_predictor: elo_poisson
+simulation_predictor: ml_outcome
 draw_probability: 0.24
 live_results_path: data/raw/world_cup_2026_matches.csv
 simulation_interval:
@@ -40,7 +41,8 @@ ranking_tiebreakers:
 
 knockout_bracket:
   source: FIFA World Cup 2026 knockout-stage match schedule
-  third_place_assignment_strategy: first_valid
+  third_place_assignment_strategy: official_table
+  third_place_mapping_path: data/external/fwc2026_third_place_annex_c.csv
   round_of_32:
     - match: 73
       teams:

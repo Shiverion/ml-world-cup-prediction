@@ -3,7 +3,9 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
+from functools import lru_cache
 from math import exp, factorial
+from pathlib import Path
 from typing import Any
 
 import numpy as np
@@ -42,6 +44,18 @@ class ThirdPlaceSlot:
     match_id: int
     team_index: int
     candidates: tuple[str, ...]
+
+
+THIRD_PLACE_WINNER_SLOTS = {
+    "1A": (79, 1),
+    "1B": (85, 1),
+    "1D": (81, 1),
+    "1E": (74, 1),
+    "1G": (82, 1),
+    "1I": (77, 1),
+    "1K": (87, 1),
+    "1L": (80, 1),
+}
 
 
 def normalize_match_probabilities(probabilities: Mapping[str, float]) -> dict[str, float]:
@@ -362,6 +376,64 @@ def assign_third_place_slots(
     return assignments
 
 
+@lru_cache(maxsize=4)
+def _official_third_place_mapping(mapping_path: str) -> dict[str, dict[tuple[int, int], str]]:
+    path = Path(mapping_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Official third-place mapping table does not exist: {path}")
+    frame = pd.read_csv(path)
+    required = {"qualified_third_groups", *[f"third_for_{winner_slot}" for winner_slot in THIRD_PLACE_WINNER_SLOTS]}
+    missing = sorted(required - set(frame.columns))
+    if missing:
+        raise ValueError(f"Official third-place mapping table is missing columns: {missing}")
+
+    mapping: dict[str, dict[tuple[int, int], str]] = {}
+    for row in frame.itertuples(index=False):
+        qualified_groups = "".join(sorted(_normalize_group_label(row.qualified_third_groups)))
+        assignments: dict[tuple[int, int], str] = {}
+        for winner_slot, match_slot in THIRD_PLACE_WINNER_SLOTS.items():
+            assigned_group = _normalize_group_label(getattr(row, f"third_for_{winner_slot}"))
+            if assigned_group.startswith("3"):
+                assigned_group = assigned_group[1:]
+            assignments[match_slot] = assigned_group
+        mapping[qualified_groups] = assignments
+
+    if len(mapping) != 495:
+        raise ValueError(f"Official third-place mapping table should contain 495 combinations, got {len(mapping)}")
+    return mapping
+
+
+def assign_third_place_slots_from_official_table(
+    slots: Sequence[ThirdPlaceSlot],
+    third_place_teams_by_group: Mapping[str, str],
+    mapping_path: str,
+) -> dict[tuple[int, int], str]:
+    normalized_thirds = {_normalize_group_label(group): team for group, team in third_place_teams_by_group.items()}
+    qualified_key = "".join(sorted(normalized_thirds))
+    official_mapping = _official_third_place_mapping(str(mapping_path))
+    if qualified_key not in official_mapping:
+        raise ValueError(f"No official third-place mapping for qualified groups: {qualified_key}")
+
+    assignments: dict[tuple[int, int], str] = {}
+    by_slot = {(slot.match_id, slot.team_index): slot for slot in slots}
+    for match_slot, slot in by_slot.items():
+        if match_slot not in official_mapping[qualified_key]:
+            raise ValueError(f"Official third-place mapping does not define match slot: {match_slot}")
+        assigned_group = official_mapping[qualified_key][match_slot]
+        if assigned_group not in normalized_thirds:
+            raise ValueError(
+                f"Official third-place mapping assigned group {assigned_group}, "
+                f"but qualified groups are {qualified_key}"
+            )
+        if assigned_group not in slot.candidates:
+            raise ValueError(
+                f"Official third-place mapping assigned group {assigned_group} "
+                f"outside allowed candidates {slot.candidates} for match slot {match_slot}"
+            )
+        assignments[match_slot] = assigned_group
+    return assignments
+
+
 def build_round_of_32_bracket(
     group_table: pd.DataFrame,
     bracket_config: Mapping[str, Any],
@@ -370,9 +442,7 @@ def build_round_of_32_bracket(
     round_config = list(bracket_config.get("round_of_32", []))
     if not round_config:
         raise ValueError("knockout_bracket.round_of_32 must contain match definitions")
-    strategy = bracket_config.get("third_place_assignment_strategy", "first_valid")
-    if strategy != "first_valid":
-        raise ValueError(f"Unsupported third-place assignment strategy: {strategy}")
+    strategy = str(bracket_config.get("third_place_assignment_strategy", "first_valid"))
 
     position_lookup = _group_position_lookup(group_table)
     qualifiers = select_group_qualifiers(group_table, third_place_count=third_place_count)
@@ -394,7 +464,19 @@ def build_round_of_32_bracket(
             candidates = tuple(_normalize_group_label(group) for group in slot["third_place_from"])
             third_place_slots.append(ThirdPlaceSlot(match_id, team_index, candidates))
 
-    third_place_assignments = assign_third_place_slots(third_place_slots, third_place_teams_by_group)
+    if strategy == "first_valid":
+        third_place_assignments = assign_third_place_slots(third_place_slots, third_place_teams_by_group)
+    elif strategy == "official_table":
+        mapping_path = bracket_config.get("third_place_mapping_path")
+        if not mapping_path:
+            raise ValueError("official_table third-place assignment requires third_place_mapping_path")
+        third_place_assignments = assign_third_place_slots_from_official_table(
+            third_place_slots,
+            third_place_teams_by_group,
+            str(mapping_path),
+        )
+    else:
+        raise ValueError(f"Unsupported third-place assignment strategy: {strategy}")
     matches: list[dict[str, Any]] = []
     for match in round_config:
         teams = list(match["teams"])

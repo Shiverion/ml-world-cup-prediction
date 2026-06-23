@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import argparse
+import html
 import json
+import re
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlencode
+from urllib.request import Request
 from urllib.request import urlopen
 
 import pandas as pd
@@ -12,7 +16,34 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 RESULTS_URL = "https://raw.githubusercontent.com/martj42/international_results/master/results.csv"
 RANKINGS_URL = "https://raw.githubusercontent.com/Dato-Futbol/fifa-ranking/refs/heads/master/ranking_fifa_historical.csv"
+FIFA_RANKING_PAGE_URL = "https://inside.fifa.com/fifa-world-ranking/men"
+FIFA_RANKING_API_URL = "https://api.fifa.com/api/v3/fifarankings/rankings/rankingsbyschedule"
 WORLD_CUP_2026_URL = "https://raw.githubusercontent.com/openfootball/worldcup.json/master/2026/worldcup.json"
+
+
+def read_json_url(url: str) -> Any:
+    request = Request(
+        url,
+        headers={
+            "Accept": "application/json",
+            "User-Agent": "Mozilla/5.0",
+            "Referer": "https://inside.fifa.com/",
+        },
+    )
+    with urlopen(request, timeout=30) as response:
+        return json.load(response)
+
+
+def read_text_url(url: str) -> str:
+    request = Request(
+        url,
+        headers={
+            "Accept": "text/html",
+            "User-Agent": "Mozilla/5.0",
+        },
+    )
+    with urlopen(request, timeout=30) as response:
+        return response.read().decode("utf-8")
 
 
 def completed_match_results(url: str = RESULTS_URL) -> pd.DataFrame:
@@ -56,6 +87,90 @@ def normalized_fifa_rankings(url: str = RANKINGS_URL) -> pd.DataFrame:
     return output.reset_index(drop=True)
 
 
+def latest_official_fifa_ranking_schedule(page_url: str = FIFA_RANKING_PAGE_URL) -> tuple[str, str]:
+    page = read_text_url(page_url)
+    match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', page, re.DOTALL)
+    if not match:
+        raise ValueError("Could not find FIFA ranking page metadata")
+    payload = json.loads(html.unescape(match.group(1)))
+    ranking_data = payload["props"]["pageProps"]["pageData"]["ranking"]
+    latest = ranking_data["allAvailableDates"][0]
+    schedule_id = str(latest["id"])
+    ranking_date = str(latest.get("matchWindowEndDate") or latest["date"])
+    return schedule_id, ranking_date
+
+
+def _team_description(team_names: list[dict[str, Any]]) -> str:
+    for item in team_names:
+        if item.get("Locale") in {"en-GB", "en"} and item.get("Description"):
+            return str(item["Description"])
+    for item in team_names:
+        if item.get("Description"):
+            return str(item["Description"])
+    raise ValueError("FIFA ranking row is missing a team description")
+
+
+def official_fifa_rankings(
+    api_url: str = FIFA_RANKING_API_URL,
+    page_url: str = FIFA_RANKING_PAGE_URL,
+    schedule_id: str | None = None,
+    ranking_date: str | None = None,
+) -> pd.DataFrame:
+    if schedule_id is None or ranking_date is None:
+        detected_schedule_id, detected_ranking_date = latest_official_fifa_ranking_schedule(page_url)
+        schedule_id = schedule_id or detected_schedule_id
+        ranking_date = ranking_date or detected_ranking_date
+
+    query = urlencode({"rankingScheduleId": schedule_id, "language": "en-GB"})
+    payload = read_json_url(f"{api_url}?{query}")
+    results = payload.get("Results") or []
+    if not results:
+        raise ValueError(f"FIFA rankings API returned no rows for schedule: {schedule_id}")
+
+    rows: list[dict[str, Any]] = []
+    for row in results:
+        rows.append(
+            {
+                "rank_date": ranking_date,
+                "team": _team_description(row.get("TeamName") or []),
+                "rank": int(row["Rank"]),
+                "points": float(row["TotalPoints"]),
+            }
+        )
+    return pd.DataFrame(rows).sort_values(["rank", "team"]).reset_index(drop=True)
+
+
+def ranking_source_frame(
+    source: str,
+    historical_url: str = RANKINGS_URL,
+    official_api_url: str = FIFA_RANKING_API_URL,
+    official_page_url: str = FIFA_RANKING_PAGE_URL,
+    official_schedule_id: str | None = None,
+    official_ranking_date: str | None = None,
+) -> pd.DataFrame:
+    if source == "historical":
+        return normalized_fifa_rankings(historical_url)
+    if source == "official":
+        return official_fifa_rankings(
+            official_api_url,
+            official_page_url,
+            schedule_id=official_schedule_id,
+            ranking_date=official_ranking_date,
+        )
+    if source == "historical-plus-official":
+        historical = normalized_fifa_rankings(historical_url)
+        official = official_fifa_rankings(
+            official_api_url,
+            official_page_url,
+            schedule_id=official_schedule_id,
+            ranking_date=official_ranking_date,
+        )
+        combined = pd.concat([historical, official], ignore_index=True)
+        combined["rank_date"] = pd.to_datetime(combined["rank_date"], errors="raise").dt.strftime("%Y-%m-%d")
+        return combined.drop_duplicates(subset=["rank_date", "team"], keep="last").reset_index(drop=True)
+    raise ValueError(f"Unsupported ranking source: {source}")
+
+
 def world_cup_2026_matches(url: str = WORLD_CUP_2026_URL) -> pd.DataFrame:
     with urlopen(url, timeout=30) as response:
         payload: dict[str, Any] = json.load(response)
@@ -93,6 +208,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--world-cup-2026-out", default=ROOT / "data" / "raw" / "world_cup_2026_matches.csv")
     parser.add_argument("--results-url", default=RESULTS_URL)
     parser.add_argument("--rankings-url", default=RANKINGS_URL)
+    parser.add_argument(
+        "--ranking-source",
+        choices=["historical", "official", "historical-plus-official"],
+        default="historical-plus-official",
+        help="Use the historical GitHub feed, the latest official FIFA snapshot, or both.",
+    )
+    parser.add_argument("--official-rankings-api-url", default=FIFA_RANKING_API_URL)
+    parser.add_argument("--official-rankings-page-url", default=FIFA_RANKING_PAGE_URL)
+    parser.add_argument("--official-ranking-schedule-id", default=None)
+    parser.add_argument("--official-ranking-date", default=None)
     parser.add_argument("--world-cup-2026-url", default=WORLD_CUP_2026_URL)
     return parser.parse_args()
 
@@ -104,7 +229,14 @@ def main() -> None:
     world_cup_2026_path = Path(args.world_cup_2026_out)
 
     matches = completed_match_results(args.results_url)
-    rankings = normalized_fifa_rankings(args.rankings_url)
+    rankings = ranking_source_frame(
+        args.ranking_source,
+        historical_url=args.rankings_url,
+        official_api_url=args.official_rankings_api_url,
+        official_page_url=args.official_rankings_page_url,
+        official_schedule_id=args.official_ranking_schedule_id,
+        official_ranking_date=args.official_ranking_date,
+    )
     world_cup_matches = world_cup_2026_matches(args.world_cup_2026_url)
 
     write_frame(matches, matches_path)
