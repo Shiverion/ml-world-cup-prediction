@@ -1,0 +1,32 @@
+round,match,team_a_top,team_a_probability,team_b_top,team_b_probability,winner_top,winner_probability
+round_of_32,73,South Korea,0.7416666666666667,Switzerland,0.6076666666666667,Switzerland,0.3823333333333333
+round_of_32,74,Germany,1.0,Paraguay,0.379,Germany,0.7276666666666667
+round_of_32,75,Netherlands,0.6776666666666666,Morocco,0.731,Netherlands,0.3816666666666666
+round_of_32,76,Brazil,0.7166666666666667,Japan,0.5413333333333333,Brazil,0.4313333333333333
+round_of_32,77,France,0.797,Sweden,0.761,France,0.6306666666666667
+round_of_32,78,Ivory Coast,0.858,Norway,0.797,Norway,0.533
+round_of_32,79,Mexico,0.9676666666666668,Scotland,0.57,Mexico,0.633
+round_of_32,80,England,0.9593333333333334,Uzbekistan,0.257,England,0.7196666666666667
+round_of_32,81,United States,1.0,Bosnia and Herzegovina,0.42,United States,0.76
+round_of_32,82,Egypt,0.537,Algeria,0.1856666666666666,Egypt,0.279
+round_of_32,83,Portugal,0.4173333333333333,Croatia,0.599,Portugal,0.303
+round_of_32,84,Spain,0.886,Austria,0.6643333333333333,Spain,0.6893333333333334
+round_of_32,85,Canada,0.6076666666666667,Egypt,0.327,Canada,0.3386666666666666
+round_of_32,86,Argentina,1.0,Cape Verde,0.5563333333333333,Argentina,0.8996666666666666
+round_of_32,87,Colombia,0.6693333333333333,Ghana,0.5296666666666666,Colombia,0.5376666666666666
+round_of_32,88,Australia,0.672,Belgium,0.696,Belgium,0.4243333333333333
+round_of_16,89,Switzerland,0.3823333333333333,Netherlands,0.3816666666666666,Netherlands,0.24
+round_of_16,90,Germany,0.7276666666666667,France,0.6306666666666667,Germany,0.3856666666666666
+round_of_16,91,Brazil,0.4313333333333333,Norway,0.533,Brazil,0.275
+round_of_16,92,Mexico,0.633,England,0.7196666666666667,England,0.4713333333333333
+round_of_16,93,Portugal,0.303,Spain,0.6893333333333334,Spain,0.501
+round_of_16,94,United States,0.76,Egypt,0.279,United States,0.4363333333333333
+round_of_16,95,Argentina,0.8996666666666666,Belgium,0.4243333333333333,Argentina,0.7076666666666667
+round_of_16,96,Canada,0.3386666666666666,Colombia,0.5376666666666666,Colombia,0.3333333333333333
+quarterfinals,97,Netherlands,0.24,Germany,0.3856666666666666,France,0.2336666666666666
+quarterfinals,98,Spain,0.501,United States,0.4363333333333333,Spain,0.4093333333333333
+quarterfinals,99,Brazil,0.275,England,0.4713333333333333,England,0.2736666666666666
+quarterfinals,100,Argentina,0.7076666666666667,Colombia,0.3333333333333333,Argentina,0.5423333333333333
+semifinals,101,France,0.2336666666666666,Spain,0.4093333333333333,Spain,0.26
+semifinals,102,England,0.2736666666666666,Argentina,0.5423333333333333,Argentina,0.3676666666666666
+final,104,Spain,0.26,Argentina,0.3676666666666666,Argentina,0.2283333333333333
