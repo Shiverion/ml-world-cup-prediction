@@ -1,0 +1,9 @@
+metric,value
+mean_max_probability,0.5491546008090332
+median_max_probability,0.5368762927170718
+p90_max_probability,0.7059591436463148
+mean_entropy,0.9683931695585315
+median_entropy,1.0109491009185936
+mean_probability_team_a_loss,0.3279830454442085
+mean_probability_draw,0.21834832880205401
+mean_probability_team_a_win,0.4536686257537375

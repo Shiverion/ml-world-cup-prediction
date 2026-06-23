@@ -4,10 +4,14 @@ data_cutoff: "2026-06-11"
 group_count: 12
 teams_per_group: 4
 third_place_qualifiers: 8
-simulation_count: 10000
+simulation_count: 3000
 simulation_predictor: elo_poisson
 draw_probability: 0.24
 live_results_path: data/raw/world_cup_2026_matches.csv
+simulation_interval:
+  enabled: true
+  seed_count: 3
+  simulations_per_seed: 500
 
 # Verified online on 2026-06-18. Team names use project-standardized names.
 groups:

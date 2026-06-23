@@ -27,9 +27,15 @@ Implemented:
 - Rolling World Cup backtests from 2002 through 2022.
 - Conservative model comparison grid.
 - Primary model selection by average log loss.
+- Baseline comparison against random, Elo, Elo Poisson, Elo-only logistic, and FIFA-only logistic predictors.
+- Feature ablation study.
+- Calibration diagnostics with ECE, MCE, probability-bin reliability tables, and sharpness report.
+- Nested rolling model-selection backtest for lightweight configured candidates.
 - Elo-scaled independent Poisson scoreline simulation.
 - Fixed 2026 Round of 32 through final bracket config.
 - Best-third-place qualification simulation.
+- Simulation uncertainty intervals across deterministic seed runs.
+- Forecast registry with model card, config, git commit, and output snapshots.
 - Live mode that locks completed 2026 group-stage results.
 - Team progression probability outputs.
 - Group-position probability outputs.
@@ -105,8 +111,12 @@ Primary metrics:
 
 - Log loss
 - Multiclass Brier score
+- Ranked probability score
 - Accuracy
 - Top-1 accuracy
+- Expected calibration error
+- Maximum calibration error
+- Probability sharpness
 
 Model selection prioritizes log loss and Brier score because tournament simulation needs useful probabilities, not just the most likely class.
 
@@ -157,10 +167,19 @@ Current result:
 
 - `logistic_plain_c0_5` has the best average log loss.
 - `logistic_plain` has very similar performance and slightly higher average accuracy.
+- Default pipeline backtests are limited to configured logistic candidates for speed; heavier models remain available for manual experiments.
+
+Implemented research outputs:
+
+- baseline comparison
+- feature ablation study
+- calibration reliability tables
+- ECE/MCE summary
+- probability sharpness report
 
 Remaining:
 
-- Add calibration curves and reliability plots.
+- Add rendered calibration plots from the CSV diagnostics.
 - Consider isotonic or Platt calibration only if it improves rolling-window log loss.
 - Avoid broad hyperparameter search until more validation data or stronger features are available.
 
@@ -173,12 +192,17 @@ Outputs:
 ```text
 outputs/backtest_results/model_backtest.csv
 outputs/backtest_results/model_backtest_summary.csv
+outputs/evaluation/baseline_comparison.csv
+outputs/evaluation/ablation_results.csv
+outputs/evaluation/nested_backtest_results.csv
+outputs/evaluation/calibration_summary.csv
+outputs/evaluation/calibration_table_by_probability_bin.csv
 ```
 
 Remaining:
 
 - Add charts for metric trends by World Cup.
-- Add baseline comparisons against naive ranking-only and Elo-only predictors.
+- Add rendered reliability and ablation plots from the CSV reports.
 
 ### Phase 5: Scoreline Modeling
 
@@ -208,6 +232,9 @@ Implemented:
 - Group-position probability output.
 - Team progression probability output.
 - Predicted knockout bracket output.
+- Match probability snapshot output.
+- Simulation uncertainty intervals across deterministic seed runs.
+- Forecast registry with model card, config, git commit, and copied forecast artifacts.
 
 Remaining:
 
@@ -271,11 +298,10 @@ Research and background areas considered:
 1. Add fresher FIFA rankings or a second ranking source.
 2. Add exact third-place bracket mapping if available from official tournament rules.
 3. Add Dixon-Coles scoreline model and compare against independent Poisson.
-4. Add calibration diagnostics and reliability plots.
-5. Add naive baseline comparisons for ranking-only and Elo-only predictors.
-6. Cache Streamlit live update outputs and surface data freshness by feed.
-7. Add support for completed knockout matches in live mode.
-8. Add team-level detail pages and match fixture explorer.
+4. Add rendered calibration, ablation, and uncertainty plots from the generated CSV reports.
+5. Cache Streamlit live update outputs and surface data freshness by feed.
+6. Add support for completed knockout matches in live mode.
+7. Add team-level detail pages and match fixture explorer.
 
 ## Success Criteria
 

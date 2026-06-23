@@ -10,7 +10,6 @@ from datetime import datetime
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -21,18 +20,67 @@ st.caption("Match-level probabilities, time-aware backtesting, and Monte Carlo t
 
 simulation_path = ROOT / "outputs" / "simulations" / "team_probabilities_2026.csv"
 live_simulation_path = ROOT / "outputs" / "simulations" / "team_probabilities_2026_live.csv"
+simulation_interval_path = ROOT / "outputs" / "simulations" / "team_probabilities_2026_with_ci.csv"
+live_simulation_interval_path = ROOT / "outputs" / "simulations" / "team_probabilities_2026_live_with_ci.csv"
 group_positions_path = ROOT / "outputs" / "simulations" / "group_position_probabilities_2026.csv"
 live_group_positions_path = ROOT / "outputs" / "simulations" / "group_position_probabilities_2026_live.csv"
 bracket_path = ROOT / "outputs" / "simulations" / "predicted_knockout_bracket_2026.csv"
 live_bracket_path = ROOT / "outputs" / "simulations" / "predicted_knockout_bracket_2026_live.csv"
+match_probabilities_path = ROOT / "outputs" / "simulations" / "match_probabilities_2026.csv"
+live_match_probabilities_path = ROOT / "outputs" / "simulations" / "match_probabilities_2026_live.csv"
 backtest_path = ROOT / "outputs" / "backtest_results" / "model_backtest.csv"
 backtest_summary_path = ROOT / "outputs" / "backtest_results" / "model_backtest_summary.csv"
+evaluation_dir = ROOT / "outputs" / "evaluation"
+forecast_registry_dir = ROOT / "outputs" / "forecast_registry"
+baseline_summary_path = evaluation_dir / "baseline_comparison_summary.csv"
+baseline_path = evaluation_dir / "baseline_comparison.csv"
+ablation_summary_path = evaluation_dir / "ablation_summary.csv"
+ablation_path = evaluation_dir / "ablation_results.csv"
+nested_backtest_path = evaluation_dir / "nested_backtest_results.csv"
+calibration_summary_path = evaluation_dir / "calibration_summary.csv"
+calibration_by_world_cup_path = evaluation_dir / "calibration_by_world_cup.csv"
+calibration_table_path = evaluation_dir / "calibration_table_by_probability_bin.csv"
+sharpness_path = evaluation_dir / "probability_sharpness_report.csv"
 
 
 def modified_time(path: Path) -> str:
     if not path.exists():
         return "not generated"
     return datetime.fromtimestamp(path.stat().st_mtime).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def read_csv_if_exists(path: Path) -> pd.DataFrame | None:
+    if not path.exists():
+        return None
+    return pd.read_csv(path)
+
+
+def numeric_frame(frame: pd.DataFrame, skip_columns: set[str] | None = None) -> pd.DataFrame:
+    skip_columns = skip_columns or set()
+    output = frame.copy()
+    for column in output.columns:
+        if column in skip_columns:
+            continue
+        converted = pd.to_numeric(output[column], errors="coerce")
+        if converted.notna().any():
+            output[column] = converted
+    return output
+
+
+def probability_column_config(columns: list[str]) -> dict[str, st.column_config.NumberColumn]:
+    return {
+        column: st.column_config.NumberColumn(column, format="%.2f")
+        for column in columns
+    }
+
+
+def latest_registry_dir() -> Path | None:
+    if not forecast_registry_dir.exists():
+        return None
+    candidates = [path for path in forecast_registry_dir.iterdir() if path.is_dir()]
+    if not candidates:
+        return None
+    return max(candidates, key=lambda path: path.stat().st_mtime)
 
 
 def run_update_step(args: list[str]) -> subprocess.CompletedProcess[str]:
@@ -318,18 +366,22 @@ def render_bracket_chart(bracket: pd.DataFrame) -> None:
           </div>
         </div>
         """
-    components.html(bracket_html, height=1350, scrolling=True)
+    st.html(bracket_html)
 
 forecast_options = {
     "Live": {
         "team": live_simulation_path,
+        "team_ci": live_simulation_interval_path,
         "groups": live_group_positions_path,
         "bracket": live_bracket_path,
+        "matches": live_match_probabilities_path,
     },
     "Pre-tournament": {
         "team": simulation_path,
+        "team_ci": simulation_interval_path,
         "groups": group_positions_path,
         "bracket": bracket_path,
+        "matches": match_probabilities_path,
     },
 }
 forecast_descriptions = {
@@ -380,27 +432,98 @@ else:
     selected_paths = {}
     st.sidebar.warning("No generated forecast files found. Click Update live data to build live outputs.")
 
-prob_tab, group_tab, bracket_tab, backtest_tab = st.tabs(
-    ["Probabilities", "Group Standings", "Knockout Bracket", "Backtests"]
+prob_tab, match_tab, group_tab, bracket_tab, research_tab, registry_tab, backtest_tab = st.tabs(
+    [
+        "Probabilities",
+        "Match Probabilities",
+        "Group Standings",
+        "Knockout Bracket",
+        "Research Evaluation",
+        "Forecast Registry",
+        "Backtests",
+    ]
 )
 
 with prob_tab:
     st.subheader("Tournament Probabilities")
     if selected_paths and selected_paths["team"].exists():
-        probabilities = pd.read_csv(selected_paths["team"])
-        st.dataframe(probabilities, use_container_width=True)
+        probabilities = numeric_frame(pd.read_csv(selected_paths["team"]), {"team"})
+        leader = probabilities.sort_values("champion", ascending=False).iloc[0]
+        metric_cols = st.columns(4)
+        metric_cols[0].metric("Top Champion", str(leader["team"]))
+        metric_cols[1].metric("Champion Probability", format_probability(leader["champion"]))
+        metric_cols[2].metric("Final Probability", format_probability(leader["reach_final"]))
+        metric_cols[3].metric("Advance From Group", format_probability(leader["advance_from_group"]))
+
+        ci_path = selected_paths.get("team_ci")
+        ci_frame = read_csv_if_exists(ci_path) if ci_path else None
+        if ci_frame is not None:
+            ci_frame = numeric_frame(ci_frame, {"team"})
+            ci_columns = ["team", "champion_mean", "champion_p05", "champion_p50", "champion_p95"]
+            st.subheader("Champion Probability With Simulation Interval")
+            st.dataframe(
+                ci_frame[ci_columns],
+                width="stretch",
+                column_config=probability_column_config(ci_columns[1:]),
+            )
+        st.subheader("Progression Probabilities")
+        st.dataframe(probabilities, width="stretch")
     else:
         st.info("Run the tournament simulation to populate team probabilities.")
+
+with match_tab:
+    st.subheader("Match-Level Group Probabilities")
+    match_path = selected_paths.get("matches") if selected_paths else None
+    if match_path and match_path.exists():
+        match_probabilities = numeric_frame(pd.read_csv(match_path), {"group", "team_a", "team_b"})
+        groups = sorted(match_probabilities["group"].dropna().unique())
+        selected_group = st.selectbox("Group", groups, key="match_probability_group")
+        group_matches = match_probabilities[match_probabilities["group"] == selected_group].copy()
+        display_columns = [
+            "team_a",
+            "team_b",
+            "team_a_win",
+            "draw",
+            "team_b_win",
+            "team_a_goals_lambda",
+            "team_b_goals_lambda",
+        ]
+        st.dataframe(
+            group_matches[display_columns],
+            width="stretch",
+            column_config=probability_column_config(["team_a_win", "draw", "team_b_win"]),
+        )
+        labels = [f"{row.team_a} vs {row.team_b}" for row in group_matches.itertuples(index=False)]
+        if labels:
+            selected_match = st.selectbox("Inspect match", labels, key="inspect_match_probability")
+            match_index = labels.index(selected_match)
+            row = group_matches.iloc[match_index]
+            outcome_frame = pd.DataFrame(
+                {
+                    "probability": {
+                        f"{row['team_a']} win": row["team_a_win"],
+                        "Draw": row["draw"],
+                        f"{row['team_b']} win": row["team_b_win"],
+                    }
+                }
+            )
+            st.bar_chart(outcome_frame)
+    else:
+        st.info("Run the tournament simulation to populate match-level probabilities.")
 
 with group_tab:
     st.subheader("Group Position Probabilities")
     group_path = selected_paths.get("groups") if selected_paths else None
     if group_path and group_path.exists():
-        group_positions = pd.read_csv(group_path)
+        group_positions = numeric_frame(pd.read_csv(group_path), {"group", "team"})
         group = st.selectbox("Group", sorted(group_positions["group"].unique()))
         group_frame = group_positions[group_positions["group"] == group].copy()
         display_columns = ["team", "position_1", "position_2", "position_3", "position_4", "expected_position"]
-        st.dataframe(group_frame[display_columns], use_container_width=True)
+        st.dataframe(
+            group_frame[display_columns],
+            width="stretch",
+            column_config=probability_column_config(["position_1", "position_2", "position_3", "position_4"]),
+        )
         st.bar_chart(group_frame.set_index("team")[["position_1", "position_2", "position_3", "position_4"]])
     else:
         st.info("Run the tournament simulation to populate group standings.")
@@ -415,9 +538,106 @@ with bracket_tab:
         round_name = st.selectbox("Inspect round", round_names)
         round_frame = bracket[bracket["round"] == round_name].copy()
         with st.expander("Show bracket data"):
-            st.dataframe(round_frame, use_container_width=True)
+            st.dataframe(round_frame, width="stretch")
     else:
         st.info("Run the configured-bracket simulation to populate knockout predictions.")
+
+with research_tab:
+    st.subheader("Research Evaluation")
+    research_views = st.tabs(["Baselines", "Calibration", "Ablation", "Nested Selection"])
+
+    with research_views[0]:
+        baseline_summary = read_csv_if_exists(baseline_summary_path)
+        baseline_results = read_csv_if_exists(baseline_path)
+        if baseline_summary is not None:
+            baseline_summary = numeric_frame(baseline_summary, {"model"})
+            st.caption(f"Last generated: {modified_time(baseline_summary_path)}")
+            st.dataframe(baseline_summary, width="stretch")
+            chart_columns = [column for column in ["log_loss_mean", "brier_score_mean", "ranked_probability_score_mean"] if column in baseline_summary.columns]
+            if chart_columns:
+                st.bar_chart(baseline_summary.set_index("model")[chart_columns])
+        else:
+            st.info("Run the analysis pipeline to populate baseline comparison reports.")
+        if baseline_results is not None:
+            with st.expander("Window-level baseline results"):
+                st.dataframe(numeric_frame(baseline_results, {"model"}), width="stretch")
+
+    with research_views[1]:
+        calibration_summary = read_csv_if_exists(calibration_summary_path)
+        calibration_by_world_cup = read_csv_if_exists(calibration_by_world_cup_path)
+        calibration_table = read_csv_if_exists(calibration_table_path)
+        sharpness = read_csv_if_exists(sharpness_path)
+        if calibration_summary is not None:
+            summary = numeric_frame(calibration_summary).iloc[0]
+            metric_cols = st.columns(4)
+            metric_cols[0].metric("ECE", f"{summary['expected_calibration_error']:.3f}")
+            metric_cols[1].metric("MCE", f"{summary['maximum_calibration_error']:.3f}")
+            metric_cols[2].metric("Mean Confidence", f"{summary['mean_confidence']:.3f}")
+            metric_cols[3].metric("Top-1 Accuracy", f"{summary['top1_accuracy']:.3f}")
+        else:
+            st.info("Run the analysis pipeline to populate calibration diagnostics.")
+        if calibration_by_world_cup is not None:
+            st.subheader("Calibration By World Cup")
+            st.dataframe(numeric_frame(calibration_by_world_cup), width="stretch")
+        if calibration_table is not None:
+            st.subheader("Reliability Table")
+            calibration_table = numeric_frame(calibration_table, {"outcome"})
+            outcome = st.selectbox("Outcome", sorted(calibration_table["outcome"].unique()))
+            st.dataframe(calibration_table[calibration_table["outcome"] == outcome], width="stretch")
+        if sharpness is not None:
+            st.subheader("Sharpness")
+            st.dataframe(numeric_frame(sharpness, {"metric"}), width="stretch")
+
+    with research_views[2]:
+        ablation_summary = read_csv_if_exists(ablation_summary_path)
+        ablation_results = read_csv_if_exists(ablation_path)
+        if ablation_summary is not None:
+            ablation_summary = numeric_frame(ablation_summary, {"feature_set"})
+            st.dataframe(ablation_summary, width="stretch")
+            chart_columns = [column for column in ["log_loss_mean", "brier_score_mean", "ranked_probability_score_mean"] if column in ablation_summary.columns]
+            if chart_columns:
+                st.bar_chart(ablation_summary.set_index("feature_set")[chart_columns])
+        else:
+            st.info("Run the analysis pipeline to populate ablation reports.")
+        if ablation_results is not None:
+            with st.expander("Window-level ablation results"):
+                st.dataframe(numeric_frame(ablation_results, {"feature_set"}), width="stretch")
+
+    with research_views[3]:
+        nested = read_csv_if_exists(nested_backtest_path)
+        if nested is not None:
+            nested = numeric_frame(nested, {"selected_model"})
+            st.dataframe(nested, width="stretch")
+            if "log_loss" in nested.columns:
+                st.line_chart(nested.set_index("year")[["log_loss", "brier_score"]])
+        else:
+            st.info("Run the analysis pipeline to populate nested model-selection results.")
+
+with registry_tab:
+    st.subheader("Forecast Registry")
+    registry = latest_registry_dir()
+    if registry is None:
+        st.info("Run the analysis pipeline to populate forecast registry outputs.")
+    else:
+        st.caption(f"Latest registry: `{registry.name}`")
+        model_card_path = registry / "model_card.md"
+        if model_card_path.exists():
+            st.markdown(model_card_path.read_text(encoding="utf-8"))
+        files = []
+        for path in sorted(registry.iterdir()):
+            if path.is_file():
+                files.append(
+                    {
+                        "file": path.name,
+                        "size_bytes": path.stat().st_size,
+                        "modified": modified_time(path),
+                    }
+                )
+        st.dataframe(pd.DataFrame(files), width="stretch")
+        config_path = registry / "config.yaml"
+        if config_path.exists():
+            with st.expander("Forecast config"):
+                st.code(config_path.read_text(encoding="utf-8"), language="yaml")
 
 with backtest_tab:
     st.subheader("Backtest Results")
@@ -426,8 +646,8 @@ with backtest_tab:
         if backtest_summary_path.exists():
             model_summary = pd.read_csv(backtest_summary_path)
             st.subheader("Average By Model")
-            st.dataframe(model_summary, use_container_width=True)
+            st.dataframe(model_summary, width="stretch")
         st.subheader("Window Results")
-        st.dataframe(backtests, use_container_width=True)
+        st.dataframe(backtests, width="stretch")
     else:
         st.info("Run rolling World Cup backtests to populate model metrics.")

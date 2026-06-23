@@ -14,11 +14,14 @@ This repository contains an end-to-end Streamlit app and prediction pipeline:
 - FIFA ranking merge without future leakage
 - Conservative model comparison and backtesting
 - World Cup rolling backtest utilities
-- Match probability metrics
+- Match probability metrics including log loss, Brier score, and ranked probability score
+- Calibration diagnostics, baseline comparison, ablation study, and nested model-selection backtest reports
 - 48-team tournament simulation with fixed 2026 knockout bracket
 - Elo-scaled Poisson scoreline simulation
+- Monte Carlo simulation intervals across deterministic seed runs
+- Forecast registry with model card, config, git commit, and output snapshots
 - Live group-result locking for in-tournament updates
-- Streamlit dashboard with probabilities, group standings, and bracket views
+- Streamlit dashboard with probabilities, match probabilities, research evaluation, forecast registry, group standings, and bracket views
 - Focused unit tests for leakage-sensitive logic
 
 The 2026 FIFA World Cup started on June 11, 2026. To produce a true pre-tournament forecast, configure a data cutoff before that date. If you include matches after kickoff, treat the output as a live-updating forecast instead.
@@ -36,8 +39,10 @@ src/worldcup_prediction/
   elo.py               # pre-match Elo features
   features.py          # targets, ranking merge, rolling form, context features
   models.py            # sklearn model factories
-  metrics.py           # log loss, Brier score, accuracy
+  metrics.py           # log loss, Brier score, RPS, accuracy
   backtest.py          # rolling World Cup validation
+  calibration.py       # calibration tables, ECE/MCE, sharpness reports
+  research.py          # baselines, ablations, nested backtests, forecast registry
   simulator.py         # group and knockout Monte Carlo simulation
 app/
   streamlit_app.py     # dashboard entry point
@@ -127,7 +132,22 @@ For live tournament updates from the command line:
 python scripts/update_live.py
 ```
 
-The pipeline writes cleaned data and features to `data/processed/`, rolling backtests to `outputs/backtest_results/model_backtest.csv`, and simulation outputs under `outputs/simulations/`.
+The pipeline writes cleaned data and features to `data/processed/`, rolling backtests to `outputs/backtest_results/model_backtest.csv`, research evaluation reports to `outputs/evaluation/`, simulation outputs under `outputs/simulations/`, and a reproducible forecast snapshot under `outputs/forecast_registry/`.
+
+Research evaluation outputs include:
+
+```text
+baseline_comparison.csv
+baseline_comparison_summary.csv
+ablation_results.csv
+ablation_summary.csv
+nested_backtest_results.csv
+calibration_table_by_probability_bin.csv
+calibration_summary.csv
+calibration_by_world_cup.csv
+probability_sharpness_report.csv
+rolling_prediction_records.csv
+```
 
 Simulation outputs include:
 
@@ -135,9 +155,11 @@ Simulation outputs include:
 team_probabilities_2026.csv
 group_position_probabilities_2026.csv
 predicted_knockout_bracket_2026.csv
+match_probabilities_2026.csv
+team_probabilities_2026_with_ci.csv
 ```
 
-Live mode writes the same files with a `_live` suffix.
+Live mode writes the same files with a `_live` suffix, including `match_probabilities_2026_live.csv` and `team_probabilities_2026_live_with_ci.csv`.
 
 Tournament simulation currently uses an Elo-scaled independent Poisson scoreline model for future fixtures. The match-level ML backtests and training table are still produced from the configured feature set.
 
@@ -176,8 +198,12 @@ Live mode is not automatic minute-by-minute score tracking. It changes when `pyt
 The dashboard includes:
 
 - team tournament probabilities
+- champion probability simulation intervals
+- match-level group probability explorer
 - group position probabilities
 - FIFA-style knockout bracket chart
+- baseline, calibration, ablation, and nested-selection evaluation views
+- forecast registry model card and config viewer
 - rolling World Cup backtest comparison
 - one-click live data refresh
 
@@ -196,6 +222,12 @@ The current primary model is configured in `configs/model_config.yaml`:
 ```yaml
 primary_model: logistic_plain_c0_5
 primary_metric: log_loss
+backtest_model_candidates:
+  - logistic_plain
+  - logistic_plain_c0_5
+  - logistic_plain_c2
+  - logistic_balanced_c0_5
+  - logistic_balanced_c2
 ```
 
 The selected model is the conservative winner on average log loss across rolling World Cup windows. Accuracy is tracked, but model selection prioritizes probability quality because tournament simulation depends on calibrated probabilities.
@@ -207,8 +239,10 @@ The project separates match prediction from tournament simulation:
 1. Historical matches are cleaned and standardized.
 2. Pre-match Elo ratings and form features are generated without future leakage.
 3. Match outcome models are validated on rolling historical World Cup windows.
-4. Team strength is converted into match probabilities and scoreline simulations.
-5. Monte Carlo simulations aggregate match probabilities into group, knockout, finalist, and champion probabilities.
+4. Baselines, ablations, nested model selection, and calibration diagnostics are written as reproducible CSV reports.
+5. Team strength is converted into match probabilities and scoreline simulations.
+6. Monte Carlo simulations aggregate match probabilities into group, knockout, finalist, and champion probabilities.
+7. Forecast snapshots are versioned by cutoff, config, git commit, match probabilities, and tournament probabilities.
 
 ### Match Outcome Models
 
@@ -223,6 +257,8 @@ The model comparison currently includes:
 - `random_forest`: random forest baseline
 - `hist_gradient_boosting`: histogram gradient boosting classifier
 - `hist_gradient_boosting_l2_1`: histogram gradient boosting with stronger L2 regularization
+
+Default pipeline backtests are intentionally limited to the configured logistic candidates so local and Streamlit refreshes stay practical. Heavier candidates remain in `configs/model_config.yaml` for manual experiments.
 
 The current primary model is `logistic_plain_c0_5`. It was selected because it produced the best average log loss in the rolling World Cup validation set. `logistic_plain` had nearly identical performance and slightly higher average accuracy, but the lower log loss is preferred for probability-driven tournament simulation.
 
@@ -246,9 +282,17 @@ Validation uses rolling World Cup windows rather than random splits. For each hi
 
 - Train on matches before the tournament starts.
 - Test only on matches from that World Cup.
-- Report log loss, Brier score, accuracy, and top-1 accuracy.
+- Report log loss, Brier score, ranked probability score, accuracy, and top-1 accuracy.
 
 This avoids future leakage and better matches the real forecasting workflow. The downside is that each World Cup test window is small, so single-tournament accuracy can be noisy. Average log loss and Brier score are more important than one-off accuracy spikes.
+
+The pipeline also writes:
+
+- `baseline_comparison.csv` for random, Elo probability, Elo Poisson, Elo-only logistic, FIFA-only logistic, and full primary-model comparisons.
+- `ablation_results.csv` for feature-set contribution checks.
+- `nested_backtest_results.csv` for leakage-aware model-selection estimates.
+- `calibration_table_by_probability_bin.csv` and `calibration_by_world_cup.csv` for reliability diagnostics.
+- `probability_sharpness_report.csv` for confidence and entropy summaries.
 
 Current conservative-tuning result:
 
@@ -278,6 +322,30 @@ Future scorelines are simulated with an Elo-scaled independent Poisson model:
 
 Live mode locks completed group-stage results from the 2026 fixture feed, then simulates only the remaining matches.
 
+Simulation uncertainty is estimated by repeating Monte Carlo runs across deterministic seeds. The default run uses a lighter CI configuration for development speed; increase `simulation_count` and `simulation_interval.simulations_per_seed` in `configs/tournament_2026.yaml` for publication-grade runs.
+
+### Forecast Registry
+
+Each pipeline run writes a forecast registry directory such as:
+
+```text
+outputs/forecast_registry/2026-06-11_pretournament/
+```
+
+The registry contains:
+
+```text
+model_card.md
+config.yaml
+git_commit.txt
+team_probabilities.csv
+group_position_probabilities.csv
+predicted_knockout_bracket.csv
+match_probabilities.csv
+```
+
+Because the current date is after the June 11, 2026 tournament kickoff, this registry is only a true pre-tournament forecast if it was generated before kickoff from a pre-kickoff commit and data snapshot. Later runs should be treated as reproducible cutoff-based snapshots, not original pre-kickoff predictions.
+
 ### Research Basis
 
 The implementation follows common findings from football prediction literature:
@@ -304,8 +372,14 @@ Relevant references and background:
 - FIFA ranking merge without future leakage
 - rolling World Cup backtests
 - conservative model grid
+- baseline comparison reports
+- ablation study reports
+- calibration diagnostics and sharpness report
+- nested model-selection backtest
 - independent Poisson scoreline simulation
 - fixed 2026 knockout bracket
+- simulation uncertainty intervals across seeds
+- forecast registry and model card
 - live group-result locking
 - Streamlit dashboard with one-click live refresh
 - group-position probability output

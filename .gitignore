@@ -24,6 +24,16 @@ outputs/*/*
 !outputs/backtest_results/
 !outputs/backtest_results/.gitkeep
 !outputs/backtest_results/*.csv
+!outputs/evaluation/
+!outputs/evaluation/.gitkeep
+!outputs/evaluation/*.csv
+!outputs/forecast_registry/
+!outputs/forecast_registry/.gitkeep
+!outputs/forecast_registry/*/
+!outputs/forecast_registry/*/*.csv
+!outputs/forecast_registry/*/*.md
+!outputs/forecast_registry/*/*.txt
+!outputs/forecast_registry/*/*.yaml
 !outputs/predictions/
 !outputs/predictions/.gitkeep
 !outputs/simulations/

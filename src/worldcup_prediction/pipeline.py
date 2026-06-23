@@ -1,19 +1,36 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from worldcup_prediction.backtest import DEFAULT_WORLDCUP_WINDOWS, WorldCupWindow, rolling_world_cup_backtest
+from worldcup_prediction.calibration import (
+    calibration_by_group,
+    calibration_table_by_probability_bin,
+    probability_sharpness_report,
+    top_label_calibration_summary,
+)
 from worldcup_prediction.cleaning import clean_matches, clean_rankings
 from worldcup_prediction.config import CONFIG_DIR, PROJECT_ROOT, RANDOM_SEED
 from worldcup_prediction.data_loader import read_csv, read_yaml, write_csv
 from worldcup_prediction.elo import add_elo_features, default_k_factor, expected_score, match_result_score
 from worldcup_prediction.features import build_feature_table
 from worldcup_prediction.models import DEFAULT_FEATURE_COLUMNS, make_model, train_model
+from worldcup_prediction.research import (
+    deterministic_interval_seeds,
+    match_probability_frame,
+    rolling_model_prediction_records,
+    run_ablation_study,
+    run_baseline_comparison,
+    run_nested_model_selection_backtest,
+    simulation_probability_intervals,
+    summarize_backtest_like_results,
+    write_forecast_registry,
+)
 from worldcup_prediction.simulator import MatchProbabilityFn, poisson_outcome_probabilities, simulate_tournament_detailed
 from worldcup_prediction.utils import ensure_columns, load_team_mapping, standardize_team_name
 
@@ -198,10 +215,19 @@ def _run_backtests(
     feature_columns: Sequence[str],
 ) -> pd.DataFrame:
     model_specs = model_config.get("models") or {"logistic": {"kind": "logistic"}}
+    configured_candidates = model_config.get("backtest_model_candidates")
+    if configured_candidates:
+        model_names = [str(name) for name in configured_candidates]
+        missing = sorted(set(model_names) - set(model_specs))
+        if missing:
+            raise ValueError(f"backtest_model_candidates are not configured under models: {missing}")
+    else:
+        model_names = list(model_specs)
     windows = parse_world_cup_windows(backtest_config)
     rows: list[pd.DataFrame] = []
 
-    for model_name, spec in model_specs.items():
+    for model_name in model_names:
+        spec = model_specs[model_name]
         random_seed = int(model_config.get("random_seed", RANDOM_SEED))
         result = rolling_world_cup_backtest(
             features,
@@ -221,6 +247,144 @@ def _run_backtests(
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
 
 
+def _model_factories_from_config(model_config: Mapping[str, Any]) -> dict[str, Callable[[], object]]:
+    model_specs = model_config.get("models") or {"logistic": {"kind": "logistic"}}
+    random_seed = int(model_config.get("random_seed", RANDOM_SEED))
+    factories: dict[str, Callable[[], object]] = {}
+    for model_name, spec in model_specs.items():
+        factories[str(model_name)] = (
+            lambda spec=spec, model_name=str(model_name), random_seed=random_seed: _model_from_spec(
+                spec,
+                model_name,
+                random_seed,
+            )
+        )
+    return factories
+
+
+def _run_research_evaluation_outputs(
+    features: pd.DataFrame,
+    model_config: Mapping[str, Any],
+    backtest_config: Mapping[str, Any],
+    feature_columns: Sequence[str],
+    average_total_goals: float,
+    draw_probability: float,
+    root: Path = PROJECT_ROOT,
+) -> dict[str, Path | None]:
+    evaluation_dir = root / "outputs" / "evaluation"
+    evaluation_dir.mkdir(parents=True, exist_ok=True)
+    windows = parse_world_cup_windows(backtest_config)
+    target_column = str(model_config.get("target_column", "target"))
+    primary_metric = str(model_config.get("primary_metric", "log_loss"))
+    primary_model_name = str(model_config.get("primary_model") or next(iter((model_config.get("models") or {"logistic": {}}).keys())))
+    model_factories = _model_factories_from_config(model_config)
+    if primary_model_name not in model_factories:
+        raise ValueError(f"primary_model is not configured under models: {primary_model_name}")
+    primary_factory = model_factories[primary_model_name]
+    research_config = model_config.get("research_evaluation") or {}
+    nested_candidate_names = [
+        str(name)
+        for name in research_config.get("nested_model_candidates", [primary_model_name])
+        if str(name) in model_factories
+    ]
+    nested_model_factories = {
+        name: model_factories[name]
+        for name in nested_candidate_names
+    }
+
+    outputs: dict[str, Path | None] = {}
+
+    baseline = run_baseline_comparison(
+        features,
+        primary_factory,
+        feature_columns,
+        windows,
+        average_total_goals=average_total_goals,
+        draw_probability=draw_probability,
+        target_column=target_column,
+    )
+    baseline_path = evaluation_dir / "baseline_comparison.csv"
+    baseline_summary_path = evaluation_dir / "baseline_comparison_summary.csv"
+    write_csv(baseline, baseline_path)
+    write_csv(summarize_backtest_like_results(baseline, "model", primary_metric), baseline_summary_path)
+    outputs["baseline_comparison"] = baseline_path
+    outputs["baseline_comparison_summary"] = baseline_summary_path
+
+    ablation = run_ablation_study(
+        features,
+        primary_factory,
+        feature_columns,
+        windows,
+        target_column=target_column,
+    )
+    ablation_path = evaluation_dir / "ablation_results.csv"
+    ablation_summary_path = evaluation_dir / "ablation_summary.csv"
+    write_csv(ablation, ablation_path)
+    write_csv(summarize_backtest_like_results(ablation, "feature_set", primary_metric), ablation_summary_path)
+    outputs["ablation_results"] = ablation_path
+    outputs["ablation_summary"] = ablation_summary_path
+
+    nested = (
+        run_nested_model_selection_backtest(
+            features,
+            nested_model_factories,
+            feature_columns,
+            windows,
+            primary_metric=primary_metric,
+            target_column=target_column,
+        )
+        if nested_model_factories
+        else pd.DataFrame()
+    )
+    nested_path = evaluation_dir / "nested_backtest_results.csv"
+    write_csv(nested, nested_path)
+    outputs["nested_backtest_results"] = nested_path
+
+    predictions = rolling_model_prediction_records(
+        features,
+        primary_factory,
+        feature_columns,
+        windows,
+        primary_model_name,
+        target_column=target_column,
+    )
+    predictions_path = evaluation_dir / "rolling_prediction_records.csv"
+    write_csv(predictions, predictions_path)
+    outputs["rolling_prediction_records"] = predictions_path
+
+    if predictions.empty:
+        outputs["calibration_table"] = None
+        outputs["calibration_summary"] = None
+        outputs["calibration_by_world_cup"] = None
+        outputs["probability_sharpness_report"] = None
+        return outputs
+
+    calibration_table_path = evaluation_dir / "calibration_table_by_probability_bin.csv"
+    calibration_summary_path = evaluation_dir / "calibration_summary.csv"
+    calibration_by_world_cup_path = evaluation_dir / "calibration_by_world_cup.csv"
+    sharpness_path = evaluation_dir / "probability_sharpness_report.csv"
+
+    probabilities = predictions[["team_a_loss", "draw", "team_a_win"]]
+    write_csv(
+        calibration_table_by_probability_bin(predictions[target_column], probabilities),
+        calibration_table_path,
+    )
+    write_csv(
+        pd.DataFrame([top_label_calibration_summary(predictions[target_column], probabilities)]),
+        calibration_summary_path,
+    )
+    write_csv(
+        calibration_by_group(predictions, "year", target_column=target_column),
+        calibration_by_world_cup_path,
+    )
+    write_csv(probability_sharpness_report(probabilities), sharpness_path)
+    outputs["calibration_table"] = calibration_table_path
+    outputs["calibration_summary"] = calibration_summary_path
+    outputs["calibration_by_world_cup"] = calibration_by_world_cup_path
+    outputs["probability_sharpness_report"] = sharpness_path
+    return outputs
+
+
 def summarize_backtests(backtests: pd.DataFrame, primary_metric: str = "log_loss") -> pd.DataFrame:
     if backtests.empty:
         return pd.DataFrame()
@@ -228,20 +392,20 @@ def summarize_backtests(backtests: pd.DataFrame, primary_metric: str = "log_loss
     missing = sorted(required - set(backtests.columns))
     if missing:
         raise ValueError(f"Backtest data is missing columns: {missing}")
-    summary = (
-        backtests.groupby("model", as_index=False)
-        .agg(
-            windows=("year", "count"),
-            accuracy_mean=("accuracy", "mean"),
-            accuracy_std=("accuracy", "std"),
-            log_loss_mean=("log_loss", "mean"),
-            log_loss_std=("log_loss", "std"),
-            brier_score_mean=("brier_score", "mean"),
-            brier_score_std=("brier_score", "std"),
-            top1_accuracy_mean=("top1_accuracy", "mean"),
-        )
-        .fillna(0.0)
-    )
+    aggregations: dict[str, tuple[str, str]] = {
+        "windows": ("year", "count"),
+        "accuracy_mean": ("accuracy", "mean"),
+        "accuracy_std": ("accuracy", "std"),
+        "log_loss_mean": ("log_loss", "mean"),
+        "log_loss_std": ("log_loss", "std"),
+        "brier_score_mean": ("brier_score", "mean"),
+        "brier_score_std": ("brier_score", "std"),
+        "top1_accuracy_mean": ("top1_accuracy", "mean"),
+    }
+    if "ranked_probability_score" in backtests.columns:
+        aggregations["ranked_probability_score_mean"] = ("ranked_probability_score", "mean")
+        aggregations["ranked_probability_score_std"] = ("ranked_probability_score", "std")
+    summary = backtests.groupby("model", as_index=False).agg(**aggregations).fillna(0.0)
     ascending = primary_metric in {"log_loss", "brier_score"}
     sort_column = f"{primary_metric}_mean" if f"{primary_metric}_mean" in summary.columns else primary_metric
     return summary.sort_values(sort_column, ascending=ascending).reset_index(drop=True)
@@ -315,6 +479,16 @@ def run_analysis(
     backtest_summary = summarize_backtests(backtest, str(model_config.get("primary_metric", "log_loss")))
     write_csv(backtest, backtest_output_path)
     write_csv(backtest_summary, backtest_summary_output_path)
+    historical_average_total_goals = float((features["team_a_score"] + features["team_b_score"]).mean())
+    evaluation_outputs = _run_research_evaluation_outputs(
+        features,
+        model_config,
+        backtest_config,
+        feature_columns,
+        average_total_goals=historical_average_total_goals,
+        draw_probability=float(tournament_config.get("draw_probability", 0.24)),
+        root=root,
+    )
 
     cutoff = pd.Timestamp(tournament_config.get("data_cutoff", data_config.get("pre_tournament_cutoff", "2026-06-11")))
     if mode == "live" and completed_group_matches:
@@ -343,6 +517,9 @@ def run_analysis(
     simulation_output_path: Path | None = None
     group_positions_output_path: Path | None = None
     bracket_output_path: Path | None = None
+    simulation_interval_output_path: Path | None = None
+    match_probabilities_output_path: Path | None = None
+    forecast_registry_output_path: Path | None = None
     teams_by_group = load_teams_by_group(tournament_config, root)
     if teams_by_group:
         ratings = final_elo_ratings(matches_clean, cutoff=cutoff)
@@ -376,9 +553,57 @@ def run_analysis(
         simulation_output_path = root / "outputs" / "simulations" / f"team_probabilities_2026{suffix}.csv"
         group_positions_output_path = root / "outputs" / "simulations" / f"group_position_probabilities_2026{suffix}.csv"
         bracket_output_path = root / "outputs" / "simulations" / f"predicted_knockout_bracket_2026{suffix}.csv"
+        match_probabilities_output_path = root / "outputs" / "simulations" / f"match_probabilities_2026{suffix}.csv"
         write_csv(simulation_outputs["team_probabilities"], simulation_output_path)
         write_csv(simulation_outputs["group_positions"], group_positions_output_path)
         write_csv(simulation_outputs["knockout_bracket"], bracket_output_path)
+        group_match_probabilities = match_probability_frame(teams_by_group, predictor)
+        write_csv(group_match_probabilities, match_probabilities_output_path)
+
+        interval_config = tournament_config.get("simulation_interval") or {}
+        if bool(interval_config.get("enabled", True)):
+            base_simulation_count = int(tournament_config.get("simulation_count", 10_000))
+            interval_simulation_count = int(
+                interval_config.get("simulations_per_seed", min(base_simulation_count, 2_000))
+            )
+            interval_seed_count = int(interval_config.get("seed_count", 5))
+            interval_seeds = deterministic_interval_seeds(
+                int(model_config.get("random_seed", RANDOM_SEED)),
+                interval_seed_count,
+            )
+            if interval_seeds:
+                simulation_interval_output_path = (
+                    root / "outputs" / "simulations" / f"team_probabilities_2026{suffix}_with_ci.csv"
+                )
+                write_csv(
+                    simulation_probability_intervals(
+                        teams_by_group,
+                        predictor,
+                        n_simulations=interval_simulation_count,
+                        seeds=interval_seeds,
+                        third_place_count=int(tournament_config.get("third_place_qualifiers", 8)),
+                        knockout_bracket=tournament_config.get("knockout_bracket"),
+                        completed_group_matches=completed_group_matches,
+                    ),
+                    simulation_interval_output_path,
+                )
+
+        forecast_registry_output_path = write_forecast_registry(
+            root,
+            mode,
+            cutoff,
+            primary_model_name,
+            simulation_predictor,
+            int(tournament_config.get("simulation_count", 10_000)),
+            feature_columns,
+            {
+                "simulation": simulation_output_path,
+                "group_positions": group_positions_output_path,
+                "knockout_bracket": bracket_output_path,
+                "simulation_interval": simulation_interval_output_path,
+            },
+            match_probabilities=group_match_probabilities,
+        )
 
     return {
         "processed_matches": processed_matches_path,
@@ -386,7 +611,11 @@ def run_analysis(
         "features": features_path,
         "backtest": backtest_output_path,
         "backtest_summary": backtest_summary_output_path,
+        **evaluation_outputs,
         "simulation": simulation_output_path,
         "group_positions": group_positions_output_path,
         "knockout_bracket": bracket_output_path,
+        "match_probabilities": match_probabilities_output_path,
+        "simulation_intervals": simulation_interval_output_path,
+        "forecast_registry": forecast_registry_output_path,
     }

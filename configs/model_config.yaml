@@ -2,6 +2,12 @@ target_column: target
 primary_metric: log_loss
 primary_model: logistic_plain_c0_5
 random_seed: 42
+backtest_model_candidates:
+  - logistic_plain
+  - logistic_plain_c0_5
+  - logistic_plain_c2
+  - logistic_balanced_c0_5
+  - logistic_balanced_c2
 
 baseline_feature_columns:
   - elo_diff
@@ -48,3 +54,9 @@ models:
   hist_gradient_boosting_l2_1:
     kind: hist_gradient_boosting
     l2_regularization: 1.0
+
+research_evaluation:
+  nested_model_candidates:
+    - logistic_plain
+    - logistic_plain_c0_5
+    - logistic_plain_c2

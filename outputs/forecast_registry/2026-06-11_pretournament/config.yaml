@@ -1,0 +1,29 @@
+forecast_date: '2026-06-23'
+mode: pre_tournament
+data_cutoff: '2026-06-11T00:00:00'
+git_commit: e4246966efd9f7a52acce9ea4c43711e8dcae462
+model: logistic_plain_c0_5
+simulation_predictor: elo_poisson
+simulation_count: 3000
+feature_columns:
+- elo_diff
+- elo_abs_diff
+- elo_expected_a
+- fifa_rank_diff
+- fifa_points_diff
+- form_points_diff_5
+- form_points_diff_10
+- goal_diff_form_10
+- is_neutral
+- team_a_home_advantage
+- is_friendly
+- is_qualifier
+- is_world_cup
+- is_world_cup_group
+- is_world_cup_knockout
+- rest_days_diff
+outputs:
+  simulation: C:\Users\miqba\projects\ML World Cup Prediction\outputs\simulations\team_probabilities_2026.csv
+  group_positions: C:\Users\miqba\projects\ML World Cup Prediction\outputs\simulations\group_position_probabilities_2026.csv
+  knockout_bracket: C:\Users\miqba\projects\ML World Cup Prediction\outputs\simulations\predicted_knockout_bracket_2026.csv
+  simulation_interval: C:\Users\miqba\projects\ML World Cup Prediction\outputs\simulations\team_probabilities_2026_with_ci.csv

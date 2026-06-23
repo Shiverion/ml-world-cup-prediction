@@ -25,6 +25,15 @@ def multiclass_brier_score(y_true: pd.Series | np.ndarray, probabilities: pd.Dat
     return float(np.mean(np.sum((probs - encoded) ** 2, axis=1)))
 
 
+def ranked_probability_score(y_true: pd.Series | np.ndarray, probabilities: pd.DataFrame | np.ndarray) -> float:
+    probs = as_probability_array(probabilities)
+    y = np.asarray(y_true, dtype=int)
+    encoded = np.zeros_like(probs)
+    encoded[np.arange(len(y)), y] = 1.0
+    cumulative_error = (np.cumsum(probs, axis=1) - np.cumsum(encoded, axis=1)) ** 2
+    return float(np.mean(np.sum(cumulative_error[:, :-1], axis=1) / (probs.shape[1] - 1)))
+
+
 def evaluate_probabilities(y_true: pd.Series | np.ndarray, probabilities: pd.DataFrame | np.ndarray) -> dict[str, float]:
     probs = as_probability_array(probabilities)
     y = np.asarray(y_true, dtype=int)
@@ -32,6 +41,7 @@ def evaluate_probabilities(y_true: pd.Series | np.ndarray, probabilities: pd.Dat
     return {
         "log_loss": float(log_loss(y, probs, labels=OUTCOME_LABELS)),
         "brier_score": multiclass_brier_score(y, probs),
+        "ranked_probability_score": ranked_probability_score(y, probs),
         "accuracy": float(accuracy_score(y, preds)),
         "top1_accuracy": float(accuracy_score(y, preds)),
     }
