@@ -4,26 +4,24 @@ Time-aware machine learning, backtesting, and Monte Carlo tournament simulation 
 
 The project predicts match-level probabilities first, then aggregates those probabilities through tournament simulation. This keeps model evaluation grounded in historical matches instead of trying to learn directly from the tiny sample of past World Cup winners.
 
-## Current Status
+> **TL;DR:** Time-aware ML pipeline for World Cup match-outcome forecasting using Elo strength, rolling form, FIFA ranking, and leakage-aware feature generation. Rolling World Cup backtests from 2002-2022 show about 56.0% average accuracy for the primary ML model, matching strong Elo-only baselines while improving probability quality versus Elo Poisson (log loss 0.973 vs. 0.985; Brier 0.573 vs. 0.581) and substantially beating random uniform forecasting (33.6% accuracy, 1.099 log loss). The model is selected on log loss rather than raw accuracy because match probabilities feed a 48-team Monte Carlo tournament simulator with official FIFA Annex C bracket logic.
 
-This repository contains an end-to-end Streamlit app and prediction pipeline:
+## What This Demonstrates
 
-- Data loading and cleaning helpers
-- Time-aware Elo ratings
-- Time-aware rolling-form features
-- FIFA ranking merge without future leakage
-- Conservative model comparison and backtesting
-- World Cup rolling backtest utilities
-- Match probability metrics including log loss, Brier score, and ranked probability score
-- Calibration diagnostics, baseline comparison, ablation study, and nested model-selection backtest reports
-- 48-team tournament simulation with fixed 2026 knockout bracket
-- ML-driven tournament simulation with an Elo-scaled Poisson baseline option
-- Official FIFA Annex C third-place Round-of-32 assignment table
-- Monte Carlo simulation intervals across deterministic seed runs
-- Forecast registry with model card, config, git commit, and output snapshots
-- Live group-result locking for in-tournament updates
-- Streamlit dashboard with probabilities, match probabilities, research evaluation, forecast registry, group standings, and bracket views
-- Focused unit tests for leakage-sensitive logic
+This repository is built to show a forecasting workflow, not only a football dashboard:
+
+- Leakage-aware validation with rolling 2002-2022 World Cup test windows instead of random train/test splits.
+- Probability-first model selection using log loss, Brier score, ranked probability score, calibration diagnostics, and sharpness reports.
+- Baseline discipline against random, Elo probability, Elo Poisson, Elo-only logistic, FIFA-only logistic, and full-feature ML models.
+- Forecast accountability through registry snapshots containing config, git commit, model card, match probabilities, and tournament outputs.
+- Live-vs-frozen forecast separation, where completed 2026 results can be locked for live forecasts without rewriting the pre-tournament forecast story.
+
+## Honest Limitations
+
+- The default `ml_outcome` simulator uses the primary ML model for win/draw/loss probabilities, then samples scorelines conditionally from outcome templates. It does not yet estimate team-specific expected goals (`team_a_goals_lambda`, `team_b_goals_lambda`) in that path.
+- The Elo-scaled independent Poisson simulator remains available as a baseline, but it is not a Dixon-Coles or bivariate Poisson score model.
+- FIFA ranking freshness depends on the latest downloaded ranking snapshot. If ranking data is stale relative to match results, ranking features should be interpreted cautiously.
+- Live forecasts are not pure pre-tournament predictions. They lock completed group-stage results and resimulate the remaining tournament from the current cutoff.
 
 The 2026 FIFA World Cup started on June 11, 2026. To produce a true pre-tournament forecast, configure a data cutoff before that date. If you include matches after kickoff, treat the output as a live-updating forecast instead.
 
@@ -264,6 +262,8 @@ The project separates match prediction from tournament simulation:
 6. Monte Carlo simulations aggregate match probabilities into group, knockout, finalist, and champion probabilities.
 7. Forecast snapshots are versioned by cutoff, config, git commit, match probabilities, and tournament probabilities.
 
+The same leakage discipline, calibration-first model selection, and forecast registry pattern applies to operational forecasting systems beyond football, especially when predictions feed downstream simulations or decisions.
+
 ### Match Outcome Models
 
 The model comparison currently includes:
@@ -324,6 +324,19 @@ Best single window:    about 64%
 
 These numbers are reasonable for three-way football outcome prediction. They should not be interpreted like binary classification accuracy.
 
+Baseline comparison summary from the generated rolling World Cup reports:
+
+| Model | Avg accuracy | Log loss | Brier score |
+| --- | ---: | ---: | ---: |
+| Full primary ML | 56.0% | 0.973 | 0.573 |
+| Elo Poisson | 56.0% | 0.985 | 0.581 |
+| Elo probability | 56.0% | 0.992 | 0.588 |
+| Elo-only logistic | 52.6% | 1.012 | 0.599 |
+| FIFA-only logistic | 49.5% | 1.014 | 0.606 |
+| Random uniform | 33.6% | 1.099 | 0.667 |
+
+The primary ML model should therefore be read as a probability-quality improvement over strong Elo baselines, not as a headline accuracy jump.
+
 ### Tournament Simulation
 
 Tournament simulation uses:
@@ -364,6 +377,8 @@ group_position_probabilities.csv
 predicted_knockout_bracket.csv
 match_probabilities.csv
 ```
+
+`config.yaml` stores output references as project-relative paths where possible, using portable `/` separators instead of machine-specific absolute paths. Absolute local paths outside the project root are masked as `${LOCAL_PATH}/...` so registry metadata does not depend on one Windows user directory.
 
 Because the current date is after the June 11, 2026 tournament kickoff, this registry is only a true pre-tournament forecast if it was generated before kickoff from a pre-kickoff commit and data snapshot. Later runs should be treated as reproducible cutoff-based snapshots, not original pre-kickoff predictions.
 

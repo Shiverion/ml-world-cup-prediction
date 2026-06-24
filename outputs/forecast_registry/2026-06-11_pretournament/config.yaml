@@ -23,7 +23,7 @@ feature_columns:
 - is_world_cup_knockout
 - rest_days_diff
 outputs:
-  simulation: C:\Users\miqba\projects\ML World Cup Prediction\outputs\simulations\team_probabilities_2026.csv
-  group_positions: C:\Users\miqba\projects\ML World Cup Prediction\outputs\simulations\group_position_probabilities_2026.csv
-  knockout_bracket: C:\Users\miqba\projects\ML World Cup Prediction\outputs\simulations\predicted_knockout_bracket_2026.csv
-  simulation_interval: C:\Users\miqba\projects\ML World Cup Prediction\outputs\simulations\team_probabilities_2026_with_ci.csv
+  simulation: outputs/simulations/team_probabilities_2026.csv
+  group_positions: outputs/simulations/group_position_probabilities_2026.csv
+  knockout_bracket: outputs/simulations/predicted_knockout_bracket_2026.csv
+  simulation_interval: outputs/simulations/team_probabilities_2026_with_ci.csv

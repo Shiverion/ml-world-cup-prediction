@@ -1,11 +1,13 @@
-import pytest
 import pandas as pd
+import pytest
+import yaml
 
 from worldcup_prediction.research import (
     deterministic_interval_seeds,
     elo_poisson_probability_frame,
     match_probability_frame,
     simulation_probability_intervals,
+    write_forecast_registry,
 )
 
 
@@ -57,3 +59,32 @@ def test_deterministic_interval_seeds_are_stable_and_unique():
 
     assert seeds == [42, 10015, 19988]
     assert len(seeds) == len(set(seeds))
+
+
+def test_forecast_registry_config_uses_portable_paths(tmp_path):
+    simulation_path = tmp_path / "outputs" / "simulations" / "team_probabilities.csv"
+    simulation_path.parent.mkdir(parents=True)
+    pd.DataFrame({"team": ["A"], "champion": [0.1]}).to_csv(simulation_path, index=False)
+
+    outside_path = tmp_path.parent / "local_only_interval.csv"
+
+    registry_dir = write_forecast_registry(
+        root=tmp_path,
+        mode="live",
+        cutoff=pd.Timestamp("2026-06-23"),
+        model_name="logistic_plain_c0_5",
+        simulation_predictor="ml_outcome",
+        simulation_count=3000,
+        feature_columns=["elo_diff"],
+        output_paths={
+            "simulation": simulation_path,
+            "simulation_interval": outside_path,
+        },
+    )
+
+    config_text = (registry_dir / "config.yaml").read_text(encoding="utf-8")
+    registry_config = yaml.safe_load(config_text)
+
+    assert registry_config["outputs"]["simulation"] == "outputs/simulations/team_probabilities.csv"
+    assert registry_config["outputs"]["simulation_interval"] == "${LOCAL_PATH}/local_only_interval.csv"
+    assert str(tmp_path) not in config_text

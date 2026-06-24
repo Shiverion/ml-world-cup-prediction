@@ -411,6 +411,17 @@ def git_commit_hash(root: Path) -> str:
     return result.stdout.strip() or "unknown"
 
 
+def registry_path_reference(path: Path, root: Path) -> str:
+    """Return a portable path for forecast registry metadata."""
+    path = Path(path)
+    if not path.is_absolute():
+        return path.as_posix()
+    try:
+        return path.resolve().relative_to(root.resolve()).as_posix()
+    except ValueError:
+        return f"${{LOCAL_PATH}}/{path.name}"
+
+
 def write_forecast_registry(
     root: Path,
     mode: str,
@@ -438,7 +449,7 @@ def write_forecast_registry(
         "simulation_predictor": simulation_predictor,
         "simulation_count": simulation_count,
         "feature_columns": list(feature_columns),
-        "outputs": {name: str(path) for name, path in output_paths.items() if path is not None},
+        "outputs": {name: registry_path_reference(path, root) for name, path in output_paths.items() if path is not None},
     }
     with (registry_dir / "config.yaml").open("w", encoding="utf-8") as handle:
         yaml.safe_dump(registry_config, handle, sort_keys=False)
