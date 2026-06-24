@@ -3,6 +3,7 @@ import pandas as pd
 import pytest
 
 from worldcup_prediction.pipeline import (
+    apply_simulation_profile,
     completed_group_matches_from_fixture_frame,
     final_elo_ratings,
     latest_ranking_snapshot,
@@ -23,6 +24,35 @@ class DummyProbabilityModel:
     def predict_proba(self, features: pd.DataFrame) -> np.ndarray:
         self.last_features = features.copy()
         return np.array([[0.2, 0.3, 0.5]])
+
+
+def test_apply_simulation_profile_merges_nested_interval_config():
+    config = {
+        "simulation_count": 3000,
+        "simulation_interval": {"enabled": True, "seed_count": 3, "simulations_per_seed": 500},
+        "simulation_profiles": {
+            "publication": {
+                "simulation_count": 100000,
+                "simulation_interval": {"seed_count": 30, "simulations_per_seed": 5000},
+            }
+        },
+    }
+
+    profiled = apply_simulation_profile(config, "publication")
+
+    assert profiled["simulation_profile"] == "publication"
+    assert profiled["simulation_count"] == 100000
+    assert profiled["simulation_interval"] == {
+        "enabled": True,
+        "seed_count": 30,
+        "simulations_per_seed": 5000,
+    }
+    assert config["simulation_count"] == 3000
+
+
+def test_apply_simulation_profile_rejects_unknown_profile():
+    with pytest.raises(ValueError, match="Unknown simulation profile"):
+        apply_simulation_profile({"simulation_profiles": {"dev": {}}}, "publication")
 
 
 def test_final_elo_ratings_respects_cutoff():

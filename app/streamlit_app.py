@@ -164,8 +164,8 @@ def match_card(row: pd.Series, left: float, top: float) -> str:
 
 def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
     match_lookup = {int(row["match"]): row for _, row in bracket.iterrows()}
-    card_width = 178
-    card_height = 94
+    card_width = 188
+    card_height = 118
     board_width = 2060
     board_height = 1110
     zoom = max(0.5, min(float(zoom), 1.6))
@@ -183,7 +183,7 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
         "right_r32": 1860,
     }
     base_y = 62
-    step_y = 122
+    step_y = 132
     positions: dict[int, tuple[float, float]] = {}
     for index, match_id in enumerate([73, 75, 74, 77, 83, 84, 81, 82]):
         positions[match_id] = (column_x["left_r32"], base_y + index * step_y)
@@ -236,7 +236,7 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
         left, top = positions[match_id]
         return left + card_width / 2, top + card_height / 2
 
-    def connector_path(source_id: int, target_id: int) -> str:
+    def connector_segments(source_id: int, target_id: int) -> str:
         source_left, source_top = positions[source_id]
         target_left, target_top = positions[target_id]
         source_y = source_top + card_height / 2
@@ -248,10 +248,23 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
             start_x = source_left
             end_x = target_left + card_width
         mid_x = (start_x + end_x) / 2
-        return f"M {start_x:.1f} {source_y:.1f} H {mid_x:.1f} V {target_y:.1f} H {end_x:.1f}"
+        thickness = 4
+        top_band = source_y - thickness / 2
+        bottom_band = target_y - thickness / 2
+        left_band = min(start_x, mid_x)
+        right_band = min(mid_x, end_x)
+        vertical_top = min(source_y, target_y)
+        vertical_height = max(1.0, abs(target_y - source_y))
+        return "\n".join(
+            [
+                f'<div class="bracket-connector" style="left: {left_band:.1f}px; top: {top_band:.1f}px; width: {max(1.0, abs(mid_x - start_x)):.1f}px; height: {thickness}px;"></div>',
+                f'<div class="bracket-connector" style="left: {mid_x - thickness / 2:.1f}px; top: {vertical_top:.1f}px; width: {thickness}px; height: {vertical_height:.1f}px;"></div>',
+                f'<div class="bracket-connector" style="left: {right_band:.1f}px; top: {bottom_band:.1f}px; width: {max(1.0, abs(end_x - mid_x)):.1f}px; height: {thickness}px;"></div>',
+            ]
+        )
 
-    connector_paths = "\n".join(
-        f'<path d="{connector_path(source_id, target_id)}" />'
+    connector_html = "\n".join(
+        connector_segments(source_id, target_id)
         for target_id, sources in source_pairs.items()
         for source_id in sources
         if target_id in match_lookup and source_id in match_lookup
@@ -293,37 +306,33 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
             position: relative;
             width: {board_width}px;
             height: {board_height}px;
-            background: #f8fafc;
-            border: 1px solid #d8dee9;
-            border-radius: 8px;
+            background: linear-gradient(180deg, #fbfdff 0%, #f5f7fb 100%);
+            border: 1px solid #cbd5e1;
+            border-radius: 10px;
             box-sizing: border-box;
             transform: scale({zoom:.3f});
             transform-origin: top left;
           }}
           .bracket-label {{
             position: absolute;
-            top: 18px;
+            top: 16px;
             width: {card_width}px;
-            font-size: 0.88rem;
+            font-size: 0.84rem;
             font-weight: 700;
             color: #1f2937;
             text-align: center;
           }}
-          .bracket-lines {{
+          .bracket-connectors {{
             position: absolute;
             inset: 0;
-            width: {board_width}px;
-            height: {board_height}px;
             z-index: 1;
             pointer-events: none;
           }}
-          .bracket-lines path {{
-            fill: none;
-            stroke: #1d4ed8;
-            stroke-width: 3;
-            stroke-linecap: square;
-            stroke-linejoin: round;
-            opacity: 0.9;
+          .bracket-connector {{
+            position: absolute;
+            background: #334155;
+            border-radius: 999px;
+            box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5);
           }}
           .bracket-card {{
             position: absolute;
@@ -334,46 +343,59 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
             border: 1px solid #d7dde6;
             border-radius: 8px;
             background: #ffffff;
-            padding: 10px;
-            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.12);
+            padding: 12px;
+            box-shadow: 0 2px 8px rgba(15, 23, 42, 0.10);
           }}
           .bracket-match {{
             color: #64748b;
-            font-size: 0.74rem;
-            margin-bottom: 7px;
+            font-size: 0.72rem;
+            margin-bottom: 6px;
           }}
           .bracket-team {{
-            display: flex;
-            justify-content: space-between;
-            gap: 10px;
-            padding: 4px 0;
-            font-size: 0.84rem;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+            align-items: start;
+            padding: 3px 0;
+            font-size: 0.81rem;
+            line-height: 1.12;
             color: #111827;
+          }}
+          .bracket-team span {{
+            min-width: 0;
+            overflow-wrap: anywhere;
           }}
           .bracket-team strong {{
             color: #334155;
             font-weight: 650;
             white-space: nowrap;
+            text-align: right;
           }}
           .bracket-winner {{
             margin-top: 8px;
             padding-top: 8px;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 8px;
+            align-items: start;
             border-top: 1px solid #edf1f5;
             color: #0f766e;
-            font-size: 0.8rem;
+            font-size: 0.78rem;
             font-weight: 650;
+            line-height: 1.12;
           }}
           .bracket-winner strong {{
-            float: right;
+            white-space: nowrap;
+            text-align: right;
           }}
         </style>
         <div class="bracket-scroll">
           <div class="bracket-zoom-frame">
             <div class="bracket-board">
               {label_html}
-              <svg class="bracket-lines" viewBox="0 0 {board_width} {board_height}" aria-hidden="true">
-                {connector_paths}
-              </svg>
+              <div class="bracket-connectors" aria-hidden="true">
+                {connector_html}
+              </div>
               {cards}
             </div>
           </div>

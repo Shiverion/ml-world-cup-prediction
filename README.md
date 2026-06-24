@@ -127,11 +127,30 @@ Then run:
 python scripts/run_analysis.py
 ```
 
+Simulation runtime can be selected with profiles from `configs/tournament_2026.yaml`:
+
+```powershell
+python scripts/run_analysis.py --profile dev
+python scripts/run_analysis.py --profile local
+python scripts/run_analysis.py --profile publication
+python scripts/run_analysis.py --live --profile dev
+```
+
+Profile intent:
+
+| Profile | Main simulations | Interval seeds | Simulations per interval seed | Use case |
+| --- | ---: | ---: | ---: | --- |
+| `dev` | 3,000 | 3 | 500 | Streamlit and quick local refresh |
+| `local` | 20,000 | 10 | 2,000 | normal local analysis |
+| `publication` | 100,000 | 30 | 5,000 | paper-style forecast artifacts |
+
 For live tournament updates from the command line:
 
 ```powershell
 python scripts/update_live.py
 ```
+
+The Streamlit live-update button and `scripts/update_live.py` should stay on the `dev` profile. Use `publication` manually from the CLI when you intentionally want a long-running, high-precision artifact.
 
 The pipeline writes cleaned data and features to `data/processed/`, rolling backtests to `outputs/backtest_results/model_backtest.csv`, research evaluation reports to `outputs/evaluation/`, simulation outputs under `outputs/simulations/`, and a reproducible forecast snapshot under `outputs/forecast_registry/`.
 
@@ -324,7 +343,7 @@ By default, match outcome probabilities are produced by the configured primary M
 
 The Elo-scaled independent Poisson simulator remains available as `simulation_predictor: elo_poisson` for scoreline-model baselines. Live mode locks completed group-stage results from the 2026 fixture feed, then simulates only the remaining matches.
 
-Simulation uncertainty is estimated by repeating Monte Carlo runs across deterministic seeds. The default run uses a lighter CI configuration for development speed; increase `simulation_count` and `simulation_interval.simulations_per_seed` in `configs/tournament_2026.yaml` for publication-grade runs.
+Simulation uncertainty is estimated by repeating Monte Carlo runs across deterministic seeds. The default `dev` profile uses a lighter configuration for dashboard speed; use `--profile local` or `--profile publication` for higher-precision forecast artifacts.
 
 ### Forecast Registry
 

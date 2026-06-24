@@ -13,6 +13,26 @@ simulation_interval:
   enabled: true
   seed_count: 3
   simulations_per_seed: 500
+simulation_profile: dev
+simulation_profiles:
+  dev:
+    simulation_count: 3000
+    simulation_interval:
+      enabled: true
+      seed_count: 3
+      simulations_per_seed: 500
+  local:
+    simulation_count: 20000
+    simulation_interval:
+      enabled: true
+      seed_count: 10
+      simulations_per_seed: 2000
+  publication:
+    simulation_count: 100000
+    simulation_interval:
+      enabled: true
+      seed_count: 30
+      simulations_per_seed: 5000
 
 # Verified online on 2026-06-18. Team names use project-standardized names.
 groups:

@@ -20,6 +20,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--backtest-config", default=ROOT / "configs" / "backtest_config.yaml")
     parser.add_argument("--tournament-config", default=ROOT / "configs" / "tournament_2026.yaml")
     parser.add_argument("--live", action="store_true", help="Lock completed 2026 matches and write live probabilities.")
+    parser.add_argument(
+        "--profile",
+        default=None,
+        help="Simulation runtime profile from tournament config, for example dev, local, or publication.",
+    )
     return parser.parse_args()
 
 
@@ -33,6 +38,7 @@ def main() -> None:
             tournament_config_path=args.tournament_config,
             root=ROOT,
             live=args.live,
+            simulation_profile=args.profile,
         )
     except (FileNotFoundError, ValueError) as exc:
         raise SystemExit(f"Pipeline failed: {exc}") from exc

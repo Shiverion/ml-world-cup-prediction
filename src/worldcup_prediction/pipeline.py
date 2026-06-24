@@ -606,6 +606,30 @@ def _model_from_spec(spec: Mapping[str, Any], model_name: str, random_seed: int)
     return make_model(kind, random_state=random_seed, **params)
 
 
+def apply_simulation_profile(
+    tournament_config: Mapping[str, Any],
+    simulation_profile: str | None = None,
+) -> dict[str, Any]:
+    config = dict(tournament_config)
+    selected_profile = simulation_profile or config.get("simulation_profile")
+    if not selected_profile:
+        return config
+
+    profiles = config.get("simulation_profiles") or {}
+    if selected_profile not in profiles:
+        available = ", ".join(sorted(str(profile) for profile in profiles)) or "none"
+        raise ValueError(f"Unknown simulation profile '{selected_profile}'. Available profiles: {available}")
+
+    profile_config = profiles[selected_profile] or {}
+    for key, value in profile_config.items():
+        if isinstance(value, Mapping) and isinstance(config.get(key), Mapping):
+            config[key] = {**dict(config[key]), **dict(value)}
+        else:
+            config[key] = value
+    config["simulation_profile"] = selected_profile
+    return config
+
+
 def run_analysis(
     data_config_path: str | Path = CONFIG_DIR / "data_config.yaml",
     model_config_path: str | Path = CONFIG_DIR / "model_config.yaml",
@@ -613,11 +637,15 @@ def run_analysis(
     tournament_config_path: str | Path = CONFIG_DIR / "tournament_2026.yaml",
     root: Path = PROJECT_ROOT,
     live: bool = False,
+    simulation_profile: str | None = None,
 ) -> dict[str, Path | None]:
     data_config = read_yaml(resolve_project_path(data_config_path, root))
     model_config = read_yaml(resolve_project_path(model_config_path, root))
     backtest_config = read_yaml(resolve_project_path(backtest_config_path, root))
-    tournament_config = read_yaml(resolve_project_path(tournament_config_path, root))
+    tournament_config = apply_simulation_profile(
+        read_yaml(resolve_project_path(tournament_config_path, root)),
+        simulation_profile,
+    )
 
     raw_matches_path = resolve_project_path(data_config["raw_matches_path"], root)
     raw_rankings_path = resolve_project_path(data_config["raw_rankings_path"], root)
