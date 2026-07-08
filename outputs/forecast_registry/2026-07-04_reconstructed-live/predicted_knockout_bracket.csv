@@ -15,18 +15,18 @@ round_of_32,85,Switzerland,1.0,Algeria,1.0,Switzerland,1.0
 round_of_32,86,Argentina,1.0,Cape Verde,1.0,Argentina,1.0
 round_of_32,87,Colombia,1.0,Ghana,1.0,Colombia,1.0
 round_of_32,88,Australia,1.0,Egypt,1.0,Egypt,1.0
-round_of_16,89,Canada,1.0,Morocco,1.0,Morocco,0.5496666666666666
-round_of_16,90,Paraguay,1.0,France,1.0,France,0.6893333333333334
-round_of_16,91,Brazil,1.0,Norway,1.0,Brazil,0.7183333333333334
-round_of_16,92,Mexico,1.0,England,1.0,Mexico,0.5906666666666667
-round_of_16,93,Portugal,1.0,Spain,1.0,Portugal,0.5096666666666667
-round_of_16,94,United States,1.0,Belgium,1.0,United States,0.518
-round_of_16,95,Argentina,1.0,Egypt,1.0,Argentina,0.8126666666666666
-round_of_16,96,Switzerland,1.0,Colombia,1.0,Switzerland,0.5783333333333334
-quarterfinals,97,Morocco,0.5496666666666666,France,0.6893333333333334,France,0.40066666666666667
-quarterfinals,98,Portugal,0.5096666666666667,United States,0.518,Spain,0.38266666666666665
-quarterfinals,99,Brazil,0.7183333333333334,Mexico,0.5906666666666667,Brazil,0.43333333333333335
-quarterfinals,100,Argentina,0.8126666666666666,Switzerland,0.5783333333333334,Argentina,0.5796666666666667
-semifinals,101,France,0.40066666666666667,Spain,0.38266666666666665,France,0.254
-semifinals,102,Brazil,0.43333333333333335,Argentina,0.5796666666666667,Argentina,0.278
-final,104,France,0.254,Argentina,0.278,France,0.17366666666666666
+round_of_16,89,Canada,1.0,Morocco,1.0,Morocco,0.643
+round_of_16,90,Paraguay,1.0,France,1.0,France,0.779
+round_of_16,91,Brazil,1.0,Norway,1.0,Brazil,0.685
+round_of_16,92,Mexico,1.0,England,1.0,Mexico,0.5193333333333333
+round_of_16,93,Portugal,1.0,Spain,1.0,Spain,0.5896666666666667
+round_of_16,94,United States,1.0,Belgium,1.0,Belgium,0.5733333333333334
+round_of_16,95,Argentina,1.0,Egypt,1.0,Argentina,0.8073333333333333
+round_of_16,96,Switzerland,1.0,Colombia,1.0,Colombia,0.5003333333333333
+quarterfinals,97,Morocco,0.643,France,0.779,France,0.512
+quarterfinals,98,Spain,0.5896666666666667,Belgium,0.5733333333333334,Spain,0.44633333333333336
+quarterfinals,99,Brazil,0.685,Mexico,0.5193333333333333,Brazil,0.362
+quarterfinals,100,Argentina,0.8073333333333333,Colombia,0.5003333333333333,Argentina,0.544
+semifinals,101,France,0.512,Spain,0.44633333333333336,France,0.30233333333333334
+semifinals,102,Brazil,0.362,Argentina,0.544,Argentina,0.30933333333333335
+final,104,France,0.30233333333333334,Argentina,0.30933333333333335,France,0.18266666666666667

@@ -1,7 +1,7 @@
 forecast_date: '2026-07-08'
 mode: reconstructed_live
 data_cutoff: '2026-07-04T00:00:00'
-git_commit: 3a770103e6da3e6535ab6e76904cc04fa1523bed
+git_commit: 64b95722b949d5667f64357b9380e25f833756d8
 model: logistic_plain_c0_5
 simulation_predictor: ml_outcome
 simulation_count: 3000
@@ -31,3 +31,9 @@ metadata:
   reconstructed: true
   forecast_round: round_of_16
   source_live_results: data/raw/world_cup_2026_matches.csv
+  anchored_live_update: true
+  anchor_model_weight: 0.8333
+  live_model_weight: 0.1667
+  live_knockout_training_matches: 16
+  live_update_prior_strength: 80
+  live_update_max_live_weight: 0.35

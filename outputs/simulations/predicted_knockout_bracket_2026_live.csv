@@ -23,10 +23,10 @@ round_of_16,93,Portugal,1.0,Spain,1.0,Spain,1.0
 round_of_16,94,United States,1.0,Belgium,1.0,Belgium,1.0
 round_of_16,95,Argentina,1.0,Egypt,1.0,Argentina,1.0
 round_of_16,96,Switzerland,1.0,Colombia,1.0,Switzerland,1.0
-quarterfinals,97,Morocco,1.0,France,1.0,France,0.666
-quarterfinals,98,Spain,1.0,Belgium,1.0,Spain,0.6393333333333333
-quarterfinals,99,Norway,1.0,England,1.0,England,0.66
-quarterfinals,100,Argentina,1.0,Switzerland,1.0,Argentina,0.5966666666666667
-semifinals,101,France,0.666,Spain,0.6393333333333333,Spain,0.416
-semifinals,102,England,0.66,Argentina,0.5966666666666667,Argentina,0.4076666666666667
-final,104,Spain,0.416,Argentina,0.4076666666666667,Spain,0.23833333333333334
+quarterfinals,97,Morocco,1.0,France,1.0,France,0.613
+quarterfinals,98,Spain,1.0,Belgium,1.0,Spain,0.691
+quarterfinals,99,Norway,1.0,England,1.0,England,0.6126666666666667
+quarterfinals,100,Argentina,1.0,Switzerland,1.0,Argentina,0.6563333333333333
+semifinals,101,France,0.613,Spain,0.691,Spain,0.4246666666666667
+semifinals,102,England,0.6126666666666667,Argentina,0.6563333333333333,Argentina,0.4236666666666667
+final,104,Spain,0.4246666666666667,Argentina,0.4236666666666667,Spain,0.2683333333333333
