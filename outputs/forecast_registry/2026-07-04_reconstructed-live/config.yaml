@@ -1,0 +1,33 @@
+forecast_date: '2026-07-08'
+mode: reconstructed_live
+data_cutoff: '2026-07-04T00:00:00'
+git_commit: 3a770103e6da3e6535ab6e76904cc04fa1523bed
+model: logistic_plain_c0_5
+simulation_predictor: ml_outcome
+simulation_count: 3000
+feature_columns:
+- elo_diff
+- elo_abs_diff
+- elo_expected_a
+- fifa_rank_diff
+- fifa_points_diff
+- form_points_diff_5
+- form_points_diff_10
+- goal_diff_form_10
+- is_neutral
+- team_a_home_advantage
+- is_friendly
+- is_qualifier
+- is_world_cup
+- is_world_cup_group
+- is_world_cup_knockout
+- rest_days_diff
+outputs:
+  simulation: outputs/forecast_registry/2026-07-04_reconstructed-live/team_probabilities.csv
+  group_positions: outputs/forecast_registry/2026-07-04_reconstructed-live/group_position_probabilities.csv
+  knockout_bracket: outputs/forecast_registry/2026-07-04_reconstructed-live/predicted_knockout_bracket.csv
+  match_probabilities: outputs/forecast_registry/2026-07-04_reconstructed-live/match_probabilities.csv
+metadata:
+  reconstructed: true
+  forecast_round: round_of_16
+  source_live_results: data/raw/world_cup_2026_matches.csv

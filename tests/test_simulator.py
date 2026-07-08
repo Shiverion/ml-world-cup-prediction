@@ -223,6 +223,47 @@ def test_simulate_tournament_detailed_returns_group_positions_and_bracket_rows()
     assert not details["knockout_bracket"].empty
 
 
+def test_completed_knockout_match_winner_is_locked_into_later_rounds():
+    teams_by_group = {group: [f"{group}{index}" for index in range(1, 5)] for group in ["A", "B"]}
+    bracket_config = {
+        "round_of_32": [
+            {"match": 73, "teams": [{"group": "A", "position": 1}, {"group": "B", "position": 2}]},
+            {"match": 74, "teams": [{"group": "B", "position": 1}, {"group": "A", "position": 2}]},
+        ],
+        "round_of_16": [{"match": 89, "winners_of": [73, 74]}],
+        "quarterfinals": [{"match": 97, "winners_of": [89, 89]}],
+        "semifinals": [{"match": 101, "winners_of": [97, 97]}],
+        "final": [{"match": 104, "winners_of": [101, 101]}],
+    }
+
+    details = simulate_tournament_detailed(
+        teams_by_group,
+        lambda team_a, team_b, context=None: {"team_a_win": 1.0, "draw": 0.0, "team_b_win": 0.0},
+        n_simulations=1,
+        seed=1,
+        third_place_count=0,
+        knockout_bracket=bracket_config,
+        completed_knockout_matches=[
+            {
+                "round": "round_of_32",
+                "match": 73,
+                "team_a": "A1",
+                "team_b": "B2",
+                "team_a_score": 0,
+                "team_b_score": 1,
+                "winner": "B2",
+            }
+        ],
+    )
+
+    bracket = details["knockout_bracket"].set_index("match")
+    teams = details["team_probabilities"].set_index("team")
+    assert bracket.loc[73, "winner_top"] == "B2"
+    assert bracket.loc[89, "team_a_top"] == "B2"
+    assert teams.loc["B2", "reach_r16"] == pytest.approx(1.0)
+    assert teams.loc["A1", "reach_r16"] == pytest.approx(0.0)
+
+
 def test_rank_group_orders_by_points_goal_difference_and_goals_for():
     records = [
         GroupRecord("A", "G", points=6, goals_for=3, goals_against=1),

@@ -358,6 +358,7 @@ def simulation_probability_intervals(
     third_place_count: int = 8,
     knockout_bracket: Mapping[str, Any] | None = None,
     completed_group_matches: Sequence[Mapping[str, Any]] | None = None,
+    completed_knockout_matches: Sequence[Mapping[str, Any]] | None = None,
 ) -> pd.DataFrame:
     rows: list[pd.DataFrame] = []
     for seed in seeds:
@@ -369,6 +370,7 @@ def simulation_probability_intervals(
             third_place_count=third_place_count,
             knockout_bracket=knockout_bracket,
             completed_group_matches=completed_group_matches,
+            completed_knockout_matches=completed_knockout_matches,
         )["team_probabilities"].copy()
         output.insert(0, "seed", int(seed))
         rows.append(output)
@@ -422,6 +424,69 @@ def registry_path_reference(path: Path, root: Path) -> str:
         return f"${{LOCAL_PATH}}/{path.name}"
 
 
+def forecast_registry_mode_slug(mode: str) -> str:
+    return {
+        "live": "live",
+        "pre_knockout": "preknockout",
+        "pre_tournament": "pretournament",
+        "reconstructed_live": "reconstructed-live",
+    }.get(mode, str(mode).replace("_", ""))
+
+
+def _write_forecast_registry_metadata(
+    registry_dir: Path,
+    root: Path,
+    mode: str,
+    cutoff: pd.Timestamp,
+    model_name: str,
+    simulation_predictor: str,
+    simulation_count: int,
+    feature_columns: Sequence[str],
+    outputs: Mapping[str, str],
+    known_missing_data: Sequence[str] | None = None,
+    metadata: Mapping[str, Any] | None = None,
+) -> None:
+    commit = git_commit_hash(root)
+    (registry_dir / "git_commit.txt").write_text(f"{commit}\n", encoding="utf-8")
+    registry_config = {
+        "forecast_date": pd.Timestamp.utcnow().date().isoformat(),
+        "mode": mode,
+        "data_cutoff": cutoff.isoformat(),
+        "git_commit": commit,
+        "model": model_name,
+        "simulation_predictor": simulation_predictor,
+        "simulation_count": simulation_count,
+        "feature_columns": list(feature_columns),
+        "outputs": dict(outputs),
+    }
+    if metadata:
+        registry_config["metadata"] = dict(metadata)
+    with (registry_dir / "config.yaml").open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(registry_config, handle, sort_keys=False)
+
+    missing_text = "\n".join(
+        f"- {item}" for item in known_missing_data or ["No squad, injury, lineup, weather, travel, or odds features."]
+    )
+    card = f"""# Forecast Card
+
+Forecast date: {registry_config["forecast_date"]}
+Data cutoff: {cutoff.isoformat()}
+Mode: {mode}
+Git commit: {commit}
+Model: {model_name}
+Simulation predictor: {simulation_predictor}
+Number of simulations: {simulation_count}
+Calibration method: uncalibrated base probabilities; calibration diagnostics are reported separately
+
+## Known Missing Data
+
+{missing_text}
+"""
+    if metadata:
+        card += "\n## Metadata\n\n" + "\n".join(f"- {key}: {value}" for key, value in metadata.items()) + "\n"
+    (registry_dir / "model_card.md").write_text(card, encoding="utf-8")
+
+
 def write_forecast_registry(
     root: Path,
     mode: str,
@@ -434,25 +499,22 @@ def write_forecast_registry(
     match_probabilities: pd.DataFrame | None = None,
     known_missing_data: Sequence[str] | None = None,
 ) -> Path:
-    mode_slug = "live" if mode == "live" else "pretournament"
+    mode_slug = forecast_registry_mode_slug(mode)
     registry_dir = root / "outputs" / "forecast_registry" / f"{cutoff.date()}_{mode_slug}"
     registry_dir.mkdir(parents=True, exist_ok=True)
 
-    commit = git_commit_hash(root)
-    (registry_dir / "git_commit.txt").write_text(f"{commit}\n", encoding="utf-8")
-    registry_config = {
-        "forecast_date": pd.Timestamp.utcnow().date().isoformat(),
-        "mode": mode,
-        "data_cutoff": cutoff.isoformat(),
-        "git_commit": commit,
-        "model": model_name,
-        "simulation_predictor": simulation_predictor,
-        "simulation_count": simulation_count,
-        "feature_columns": list(feature_columns),
-        "outputs": {name: registry_path_reference(path, root) for name, path in output_paths.items() if path is not None},
-    }
-    with (registry_dir / "config.yaml").open("w", encoding="utf-8") as handle:
-        yaml.safe_dump(registry_config, handle, sort_keys=False)
+    _write_forecast_registry_metadata(
+        registry_dir,
+        root,
+        mode,
+        cutoff,
+        model_name,
+        simulation_predictor,
+        simulation_count,
+        feature_columns,
+        {name: registry_path_reference(path, root) for name, path in output_paths.items() if path is not None},
+        known_missing_data=known_missing_data,
+    )
 
     if output_paths.get("simulation"):
         pd.read_csv(output_paths["simulation"]).to_csv(registry_dir / "team_probabilities.csv", index=False)
@@ -469,21 +531,52 @@ def write_forecast_registry(
     if match_probabilities is not None:
         match_probabilities.to_csv(registry_dir / "match_probabilities.csv", index=False)
 
-    missing_text = "\n".join(f"- {item}" for item in known_missing_data or ["No squad, injury, lineup, weather, travel, or odds features."])
-    card = f"""# Forecast Card
+    return registry_dir
 
-Forecast date: {registry_config["forecast_date"]}
-Data cutoff: {cutoff.isoformat()}
-Mode: {mode}
-Git commit: {commit}
-Model: {model_name}
-Simulation predictor: {simulation_predictor}
-Number of simulations: {simulation_count}
-Calibration method: uncalibrated base probabilities; calibration diagnostics are reported separately
 
-## Known Missing Data
+def write_forecast_registry_frames(
+    root: Path,
+    mode: str,
+    cutoff: pd.Timestamp,
+    model_name: str,
+    simulation_predictor: str,
+    simulation_count: int,
+    feature_columns: Sequence[str],
+    frames: Mapping[str, pd.DataFrame],
+    match_probabilities: pd.DataFrame | None = None,
+    known_missing_data: Sequence[str] | None = None,
+    metadata: Mapping[str, Any] | None = None,
+) -> Path:
+    mode_slug = forecast_registry_mode_slug(mode)
+    registry_dir = root / "outputs" / "forecast_registry" / f"{cutoff.date()}_{mode_slug}"
+    registry_dir.mkdir(parents=True, exist_ok=True)
 
-{missing_text}
-"""
-    (registry_dir / "model_card.md").write_text(card, encoding="utf-8")
+    file_names = {
+        "simulation": "team_probabilities.csv",
+        "group_positions": "group_position_probabilities.csv",
+        "knockout_bracket": "predicted_knockout_bracket.csv",
+        "simulation_interval": "team_probabilities_with_ci.csv",
+    }
+    outputs: dict[str, str] = {}
+    for name, frame in frames.items():
+        file_name = file_names.get(name, f"{name}.csv")
+        frame.to_csv(registry_dir / file_name, index=False)
+        outputs[name] = f"outputs/forecast_registry/{registry_dir.name}/{file_name}"
+    if match_probabilities is not None:
+        match_probabilities.to_csv(registry_dir / "match_probabilities.csv", index=False)
+        outputs["match_probabilities"] = f"outputs/forecast_registry/{registry_dir.name}/match_probabilities.csv"
+
+    _write_forecast_registry_metadata(
+        registry_dir,
+        root,
+        mode,
+        cutoff,
+        model_name,
+        simulation_predictor,
+        simulation_count,
+        feature_columns,
+        outputs,
+        known_missing_data=known_missing_data,
+        metadata=metadata,
+    )
     return registry_dir

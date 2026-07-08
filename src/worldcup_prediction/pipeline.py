@@ -24,6 +24,7 @@ from worldcup_prediction.models import DEFAULT_FEATURE_COLUMNS, make_model, pred
 from worldcup_prediction.research import (
     deterministic_interval_seeds,
     match_probability_frame,
+    registry_path_reference,
     rolling_model_prediction_records,
     run_ablation_study,
     run_baseline_comparison,
@@ -31,9 +32,21 @@ from worldcup_prediction.research import (
     simulation_probability_intervals,
     summarize_backtest_like_results,
     write_forecast_registry,
+    write_forecast_registry_frames,
 )
-from worldcup_prediction.simulator import MatchProbabilityFn, poisson_outcome_probabilities, simulate_tournament_detailed
+from worldcup_prediction.simulator import (
+    GroupRecord,
+    MatchProbabilityFn,
+    SimulatedMatch,
+    build_round_of_32_bracket,
+    poisson_outcome_probabilities,
+    rank_group,
+    simulate_tournament_detailed,
+)
 from worldcup_prediction.utils import ensure_columns, load_team_mapping, standardize_team_name
+
+
+KNOCKOUT_ROUND_SEQUENCE = ["round_of_32", "round_of_16", "quarterfinals", "semifinals", "final"]
 
 
 def resolve_project_path(path: str | Path, root: Path = PROJECT_ROOT) -> Path:
@@ -91,12 +104,66 @@ def resolve_knockout_bracket_config(tournament_config: Mapping[str, Any], root: 
     return resolved
 
 
+def _text(value: Any) -> str:
+    return "" if pd.isna(value) else str(value).strip()
+
+
+def _is_knockout_round(round_value: Any) -> bool:
+    round_text = _text(round_value).lower()
+    return any(token in round_text for token in ["round of", "quarter", "semi", "final", "third place"])
+
+
+def _is_group_fixture_row(row: pd.Series) -> bool:
+    group = _text(row.get("group", "")).replace("Group ", "").strip()
+    return bool(group) and not _is_knockout_round(row.get("round", ""))
+
+
+def _is_unresolved_slot_name(value: Any) -> bool:
+    text = _text(value).upper().replace(" ", "")
+    if not text:
+        return True
+    if "/" in text:
+        return True
+    if text.startswith(("W", "L")) and text[1:].isdigit():
+        return True
+    return len(text) == 2 and text[0].isdigit() and text[1].isalpha()
+
+
+def _fixture_stage_name(round_value: Any, group_value: Any) -> str:
+    if _is_knockout_round(round_value):
+        return _text(round_value)
+    if _text(group_value):
+        return "Group"
+    return _text(round_value)
+
+
+def _group_stage_completed_dates(fixtures: pd.DataFrame) -> pd.Series:
+    completed = fixtures[fixtures["status"].eq("completed")].copy()
+    if completed.empty:
+        return pd.Series(dtype="datetime64[ns]")
+    group_rows = completed.apply(_is_group_fixture_row, axis=1)
+    return pd.to_datetime(completed.loc[group_rows, "date"], errors="coerce")
+
+
+def _completed_fixture_dates(fixtures: pd.DataFrame) -> pd.Series:
+    completed = fixtures[fixtures["status"].eq("completed")].copy()
+    if completed.empty:
+        return pd.Series(dtype="datetime64[ns]")
+    return pd.to_datetime(completed["date"], errors="coerce")
+
+
+def expected_group_match_count(teams_by_group: Mapping[str, Sequence[str]]) -> int:
+    return sum(len(teams) * (len(teams) - 1) // 2 for teams in teams_by_group.values())
+
+
 def completed_group_matches_from_fixture_frame(
     fixtures: pd.DataFrame,
     team_mapping: Mapping[str, str] | None = None,
 ) -> list[dict[str, Any]]:
     ensure_columns(fixtures, ["group", "team_a", "team_b", "team_a_score", "team_b_score", "status"], "fixtures")
     completed = fixtures[fixtures["status"].eq("completed")].copy()
+    if "round" in completed.columns:
+        completed = completed[completed.apply(_is_group_fixture_row, axis=1)]
     completed = completed.dropna(subset=["group", "team_a", "team_b", "team_a_score", "team_b_score"])
     rows: list[dict[str, Any]] = []
     for row in completed.itertuples(index=False):
@@ -112,15 +179,92 @@ def completed_group_matches_from_fixture_frame(
     return rows
 
 
+def group_table_from_completed_matches(
+    teams_by_group: Mapping[str, Sequence[str]],
+    completed_matches: Sequence[Mapping[str, Any]],
+) -> pd.DataFrame:
+    if not teams_by_group:
+        return pd.DataFrame()
+    table = {
+        str(group): {str(team): GroupRecord(team=str(team), group=str(group)) for team in teams}
+        for group, teams in teams_by_group.items()
+    }
+    played: list[SimulatedMatch] = []
+    for match in completed_matches:
+        group = str(match["group"])
+        team_a = str(match["team_a"])
+        team_b = str(match["team_b"])
+        if group not in table or team_a not in table[group] or team_b not in table[group]:
+            continue
+        score_a = int(match["team_a_score"])
+        score_b = int(match["team_b_score"])
+        record_a = table[group][team_a]
+        record_b = table[group][team_b]
+        record_a.goals_for += score_a
+        record_a.goals_against += score_b
+        record_b.goals_for += score_b
+        record_b.goals_against += score_a
+        if score_a > score_b:
+            record_a.points += 3
+            record_a.wins += 1
+        elif score_b > score_a:
+            record_b.points += 3
+            record_b.wins += 1
+        else:
+            record_a.points += 1
+            record_b.points += 1
+        played.append(SimulatedMatch(group, team_a, team_b, score_a, score_b))
+
+    rows: list[dict[str, Any]] = []
+    for group, records_by_team in table.items():
+        group_played = [match for match in played if match.group == group]
+        ranked = rank_group(list(records_by_team.values()), group_played, np.random.default_rng(0))
+        for position, record in enumerate(ranked, start=1):
+            rows.append(
+                {
+                    "group": group,
+                    "position": position,
+                    "team": record.team,
+                    "points": record.points,
+                    "goals_for": record.goals_for,
+                    "goals_against": record.goals_against,
+                    "goal_difference": record.goal_difference,
+                    "wins": record.wins,
+                }
+            )
+    return pd.DataFrame(rows)
+
+
 def completed_fixture_matches_for_training(
     fixtures: pd.DataFrame,
     team_mapping: Mapping[str, str] | None = None,
+    include_knockout: bool = True,
 ) -> pd.DataFrame:
     ensure_columns(fixtures, ["date", "team_a", "team_b", "team_a_score", "team_b_score", "status"], "fixtures")
     completed = fixtures[fixtures["status"].eq("completed")].copy()
+    if not include_knockout and "round" in completed.columns:
+        completed = completed[completed.apply(_is_group_fixture_row, axis=1)]
+    elif include_knockout and "round" in completed.columns:
+        unresolved_knockout = completed.apply(
+            lambda row: _is_knockout_round(row.get("round", ""))
+            and (
+                _is_unresolved_slot_name(row.get("team_a", ""))
+                or _is_unresolved_slot_name(row.get("team_b", ""))
+            ),
+            axis=1,
+        )
+        completed = completed[~unresolved_knockout]
     completed = completed.dropna(subset=["date", "team_a", "team_b", "team_a_score", "team_b_score"])
     if completed.empty:
         return pd.DataFrame()
+    stages = [
+        _fixture_stage_name(row.get("round", ""), row.get("group", ""))
+        for _, row in completed.iterrows()
+    ]
+    groups = [
+        _text(row.get("group", "")).replace("Group ", "").strip() if not _is_knockout_round(row.get("round", "")) else ""
+        for _, row in completed.iterrows()
+    ]
     raw = pd.DataFrame(
         {
             "date": completed["date"],
@@ -132,11 +276,345 @@ def completed_fixture_matches_for_training(
             "city": completed.get("ground", ""),
             "country": "",
             "neutral": True,
-            "stage": "Group",
-            "group": completed["group"].astype(str).str.replace("Group ", "", regex=False).str.strip(),
+            "stage": stages,
+            "group": groups,
         }
     )
     return clean_matches(raw, team_mapping)
+
+
+def merge_live_training_matches(matches_clean: pd.DataFrame, live_training_matches: pd.DataFrame) -> pd.DataFrame:
+    if live_training_matches.empty:
+        return matches_clean
+    return (
+        pd.concat([matches_clean, live_training_matches], ignore_index=True)
+        .drop_duplicates(
+            subset=["date", "team_a", "team_b", "team_a_score", "team_b_score", "tournament"],
+            keep="last",
+        )
+        .sort_values(["date", "team_a", "team_b"])
+        .reset_index(drop=True)
+    )
+
+
+def _round_key_from_fixture_round(round_value: Any) -> str | None:
+    round_text = _text(round_value).lower()
+    if "round of 32" in round_text:
+        return "round_of_32"
+    if "round of 16" in round_text:
+        return "round_of_16"
+    if "quarter" in round_text:
+        return "quarterfinals"
+    if "semi" in round_text:
+        return "semifinals"
+    if round_text == "final":
+        return "final"
+    return None
+
+
+def knockout_round_index(round_key: str | None) -> int | None:
+    if round_key not in KNOCKOUT_ROUND_SEQUENCE:
+        return None
+    return KNOCKOUT_ROUND_SEQUENCE.index(str(round_key))
+
+
+def fixture_frame_for_reconstructed_round(
+    fixtures: pd.DataFrame,
+    forecast_round_key: str,
+    cutoff: pd.Timestamp,
+) -> pd.DataFrame:
+    """Keep only information that would be known before a knockout round starts."""
+    if forecast_round_key not in KNOCKOUT_ROUND_SEQUENCE:
+        raise ValueError(f"Unknown knockout round: {forecast_round_key}")
+    ensure_columns(fixtures, ["date", "round", "team_a", "team_b", "team_a_score", "team_b_score", "status"], "fixtures")
+    forecast_index = KNOCKOUT_ROUND_SEQUENCE.index(forecast_round_key)
+    frame = fixtures.copy()
+    frame["_round_key"] = frame["round"].map(_round_key_from_fixture_round)
+    frame["_date"] = pd.to_datetime(frame["date"], errors="coerce")
+
+    def is_allowed_row(row: pd.Series) -> bool:
+        round_key = row["_round_key"]
+        if round_key is None:
+            return True
+        round_index = knockout_round_index(str(round_key))
+        return round_index is not None and round_index <= forecast_index
+
+    frame = frame[frame.apply(is_allowed_row, axis=1)].copy()
+    round_indices = pd.to_numeric(frame["_round_key"].map(knockout_round_index), errors="coerce").fillna(-1)
+    known_future = (round_indices >= forecast_index) | (frame["_date"] >= cutoff)
+    frame.loc[known_future, "status"] = "scheduled"
+    frame.loc[known_future, ["team_a_score", "team_b_score"]] = pd.NA
+    return frame.drop(columns=["_round_key", "_date"])
+
+
+def _slot_label(slot: Mapping[str, Any]) -> str:
+    if "group" in slot and "position" in slot:
+        return f"{int(slot['position'])}{_text(slot['group']).upper()}"
+    if "third_place_from" in slot:
+        groups = "/".join(_text(group).upper() for group in slot["third_place_from"])
+        return f"3{groups}"
+    return ""
+
+
+def _normalized_slot_text(value: Any) -> str:
+    return _text(value).upper().replace(" ", "")
+
+
+def _configured_knockout_match_ids(bracket_config: Mapping[str, Any] | None) -> set[int]:
+    if not bracket_config:
+        return set()
+    ids: set[int] = set()
+    for round_key in ["round_of_32", "round_of_16", "quarterfinals", "semifinals", "final"]:
+        for match in bracket_config.get(round_key, []):
+            ids.add(int(match["match"]))
+    return ids
+
+
+def _configured_knockout_lookup(bracket_config: Mapping[str, Any] | None) -> dict[tuple[str, tuple[Any, ...]], int]:
+    if not bracket_config:
+        return {}
+    lookup: dict[tuple[str, tuple[Any, ...]], int] = {}
+    for match in bracket_config.get("round_of_32", []):
+        teams = list(match.get("teams", []))
+        if len(teams) == 2:
+            labels = tuple(sorted(_slot_label(slot) for slot in teams))
+            lookup[("slots", labels)] = int(match["match"])
+    for round_key in ["round_of_16", "quarterfinals", "semifinals", "final"]:
+        for match in bracket_config.get(round_key, []):
+            sources = tuple(sorted(int(match_id) for match_id in match.get("winners_of", [])))
+            if len(sources) == 2:
+                lookup[("winners_of", sources)] = int(match["match"])
+    return lookup
+
+
+def _round_match_configs(bracket_config: Mapping[str, Any] | None, round_key: str) -> list[Mapping[str, Any]]:
+    if not bracket_config:
+        return []
+    return [match for match in bracket_config.get(round_key, [])]
+
+
+def _knockout_candidate_pools(
+    bracket_config: Mapping[str, Any] | None,
+    group_table: pd.DataFrame | None,
+    third_place_count: int = 8,
+) -> tuple[dict[int, set[str]], dict[int, tuple[int, int]], dict[str, set[int]]]:
+    if not bracket_config:
+        return {}, {}, {}
+    pools: dict[int, set[str]] = {}
+    sources: dict[int, tuple[int, int]] = {}
+    round_ids: dict[str, set[int]] = {}
+
+    if group_table is not None and not group_table.empty:
+        for match in build_round_of_32_bracket(group_table, bracket_config, third_place_count=third_place_count):
+            match_id = int(match["match"])
+            pools[match_id] = {str(match["team_a"]), str(match["team_b"])}
+            round_ids.setdefault("round_of_32", set()).add(match_id)
+
+    for round_key in ["round_of_16", "quarterfinals", "semifinals", "final"]:
+        for match in _round_match_configs(bracket_config, round_key):
+            match_id = int(match["match"])
+            source_ids = tuple(int(source_id) for source_id in match.get("winners_of", []))
+            if len(source_ids) != 2:
+                continue
+            sources[match_id] = (source_ids[0], source_ids[1])
+            round_ids.setdefault(round_key, set()).add(match_id)
+            source_pool = set()
+            for source_id in source_ids:
+                source_pool.update(pools.get(source_id, set()))
+            if source_pool:
+                pools[match_id] = source_pool
+    return pools, sources, round_ids
+
+
+def _match_id_from_candidate_pools(
+    round_key: str | None,
+    team_a: str,
+    team_b: str,
+    candidate_pools: Mapping[int, set[str]],
+    source_matches: Mapping[int, tuple[int, int]],
+    round_ids: Mapping[str, set[int]],
+) -> int | None:
+    if round_key is None:
+        return None
+    pair = {team_a, team_b}
+    candidates: list[int] = []
+    for match_id in round_ids.get(round_key, set()):
+        if round_key == "round_of_32":
+            if candidate_pools.get(match_id) == pair:
+                candidates.append(match_id)
+            continue
+        sources = source_matches.get(match_id)
+        if not sources:
+            continue
+        left_pool = candidate_pools.get(sources[0], set())
+        right_pool = candidate_pools.get(sources[1], set())
+        direct = team_a in left_pool and team_b in right_pool
+        reverse = team_a in right_pool and team_b in left_pool
+        if direct or reverse:
+            candidates.append(match_id)
+    return candidates[0] if len(candidates) == 1 else None
+
+
+def _fixture_knockout_match_id(
+    row: pd.Series,
+    row_index: Any,
+    bracket_config: Mapping[str, Any] | None,
+    team_a: str | None = None,
+    team_b: str | None = None,
+    candidate_pools: Mapping[int, set[str]] | None = None,
+    source_matches: Mapping[int, tuple[int, int]] | None = None,
+    round_ids: Mapping[str, set[int]] | None = None,
+) -> int | None:
+    configured_ids = _configured_knockout_match_ids(bracket_config)
+    if "match" in row and _text(row["match"]):
+        try:
+            candidate = int(float(row["match"]))
+            if not configured_ids or candidate in configured_ids:
+                return candidate
+        except ValueError:
+            pass
+
+    round_key = _round_key_from_fixture_round(row.get("round", ""))
+    if team_a is not None and team_b is not None and candidate_pools:
+        candidate = _match_id_from_candidate_pools(
+            round_key,
+            team_a,
+            team_b,
+            candidate_pools,
+            source_matches or {},
+            round_ids or {},
+        )
+        if candidate is not None:
+            return candidate
+
+    lookup = _configured_knockout_lookup(bracket_config)
+    slot_a = _normalized_slot_text(row.get("team_a", ""))
+    slot_b = _normalized_slot_text(row.get("team_b", ""))
+    winners = []
+    for value in [slot_a, slot_b]:
+        if value.startswith("W") and value[1:].isdigit():
+            winners.append(int(value[1:]))
+    if len(winners) == 2:
+        match_id = lookup.get(("winners_of", tuple(sorted(winners))))
+        if match_id is not None:
+            return match_id
+    slot_match_id = lookup.get(("slots", tuple(sorted([slot_a, slot_b]))))
+    if slot_match_id is not None:
+        return slot_match_id
+
+    try:
+        candidate = int(row_index) + 1
+        if candidate in configured_ids:
+            return candidate
+    except (TypeError, ValueError):
+        pass
+    return None
+
+
+def completed_knockout_matches_from_fixture_frame(
+    fixtures: pd.DataFrame,
+    bracket_config: Mapping[str, Any] | None,
+    team_mapping: Mapping[str, str] | None = None,
+    group_table: pd.DataFrame | None = None,
+    third_place_count: int = 8,
+) -> list[dict[str, Any]]:
+    ensure_columns(fixtures, ["round", "team_a", "team_b", "team_a_score", "team_b_score", "status"], "fixtures")
+    knockout = fixtures[fixtures["round"].map(lambda value: _round_key_from_fixture_round(value) is not None)].copy()
+    knockout = knockout.dropna(subset=["team_a", "team_b"])
+    candidate_pools, source_matches, round_ids = _knockout_candidate_pools(
+        bracket_config,
+        group_table,
+        third_place_count=third_place_count,
+    )
+
+    fixture_rows: list[dict[str, Any]] = []
+    participants_by_match: dict[int, set[str]] = {}
+    winners_by_match: dict[int, str] = {}
+    winner_sources_by_match: dict[int, str] = {}
+    for index, row in knockout.iterrows():
+        if _is_unresolved_slot_name(row.get("team_a", "")) or _is_unresolved_slot_name(row.get("team_b", "")):
+            continue
+        team_a = standardize_team_name(row["team_a"], team_mapping)
+        team_b = standardize_team_name(row["team_b"], team_mapping)
+        match_id = _fixture_knockout_match_id(
+            row,
+            index,
+            bracket_config,
+            team_a=team_a,
+            team_b=team_b,
+            candidate_pools=candidate_pools,
+            source_matches=source_matches,
+            round_ids=round_ids,
+        )
+        if match_id is None:
+            continue
+        participants_by_match[match_id] = {team_a, team_b}
+        score_a = int(float(row["team_a_score"])) if not pd.isna(row.get("team_a_score")) else None
+        score_b = int(float(row["team_b_score"])) if not pd.isna(row.get("team_b_score")) else None
+        winner_value = row.get("winner") if "winner" in row else None
+        winner = standardize_team_name(winner_value, team_mapping) if _text(winner_value) else None
+        winner_source = "fixture" if winner is not None else None
+        if winner is None and score_a is not None and score_b is not None:
+            if score_a > score_b:
+                winner = team_a
+                winner_source = "score"
+            elif score_b > score_a:
+                winner = team_b
+                winner_source = "score"
+        if winner is not None:
+            winners_by_match[match_id] = winner
+            winner_sources_by_match[match_id] = winner_source or "unknown"
+        fixture_rows.append(
+            {
+                "round": _round_key_from_fixture_round(row["round"]),
+                "match": match_id,
+                "team_a": team_a,
+                "team_b": team_b,
+                "team_a_score": score_a,
+                "team_b_score": score_b,
+                "winner": winner,
+                "completed": bool(row.get("status") == "completed" and score_a is not None and score_b is not None),
+            }
+        )
+
+    changed = True
+    while changed:
+        changed = False
+        for target_id, source_ids in source_matches.items():
+            target_participants = participants_by_match.get(target_id)
+            if not target_participants:
+                continue
+            for source_id in source_ids:
+                if source_id in winners_by_match:
+                    continue
+                source_participants = participants_by_match.get(source_id) or candidate_pools.get(source_id, set())
+                inferred = source_participants & target_participants
+                if len(inferred) == 1:
+                    winners_by_match[source_id] = next(iter(inferred))
+                    winner_sources_by_match[source_id] = "next_round"
+                    changed = True
+
+    rows: list[dict[str, Any]] = []
+    for row in fixture_rows:
+        if not row["completed"]:
+            continue
+        winner = winners_by_match.get(int(row["match"]))
+        if winner is None:
+            continue
+        rows.append(
+            {
+                "round": row["round"],
+                "match": row["match"],
+                "team_a": row["team_a"],
+                "team_b": row["team_b"],
+                "team_a_score": row["team_a_score"],
+                "team_b_score": row["team_b_score"],
+                "winner": winner,
+                "winner_source": winner_sources_by_match.get(int(row["match"]), "unknown"),
+                "decided_by_penalties": bool(row["team_a_score"] == row["team_b_score"]),
+            }
+        )
+    return rows
 
 
 def final_elo_ratings(
@@ -630,6 +1108,159 @@ def apply_simulation_profile(
     return config
 
 
+def run_reconstructed_live_snapshot(
+    forecast_round_key: str,
+    cutoff: str | pd.Timestamp,
+    data_config_path: str | Path = CONFIG_DIR / "data_config.yaml",
+    model_config_path: str | Path = CONFIG_DIR / "model_config.yaml",
+    tournament_config_path: str | Path = CONFIG_DIR / "tournament_2026.yaml",
+    root: Path = PROJECT_ROOT,
+    simulation_profile: str | None = None,
+) -> Path:
+    cutoff_ts = pd.Timestamp(cutoff)
+    data_config = read_yaml(resolve_project_path(data_config_path, root))
+    model_config = read_yaml(resolve_project_path(model_config_path, root))
+    tournament_config = apply_simulation_profile(
+        read_yaml(resolve_project_path(tournament_config_path, root)),
+        simulation_profile,
+    )
+
+    raw_matches_path = resolve_project_path(data_config["raw_matches_path"], root)
+    raw_rankings_path = resolve_project_path(data_config["raw_rankings_path"], root)
+    live_fixtures_path = resolve_project_path(
+        tournament_config.get("live_results_path", "data/raw/world_cup_2026_matches.csv"),
+        root,
+    )
+    if not raw_matches_path.exists():
+        raise FileNotFoundError(f"Raw match data not found: {raw_matches_path}")
+    if not live_fixtures_path.exists():
+        raise FileNotFoundError(f"Live fixture/results file not found: {live_fixtures_path}")
+
+    team_mapping_path = data_config.get("team_mapping_path")
+    team_mapping = load_team_mapping(str(resolve_project_path(team_mapping_path, root))) if team_mapping_path else {}
+    teams_by_group = load_teams_by_group(tournament_config, root)
+    knockout_bracket = resolve_knockout_bracket_config(tournament_config, root)
+    live_fixtures = fixture_frame_for_reconstructed_round(
+        read_csv(live_fixtures_path),
+        forecast_round_key,
+        cutoff_ts,
+    )
+
+    matches_clean = clean_matches(read_csv(raw_matches_path), team_mapping)
+    completed_group_matches = completed_group_matches_from_fixture_frame(live_fixtures, team_mapping)
+    expected_matches = expected_group_match_count(teams_by_group)
+    if len(completed_group_matches) < expected_matches:
+        raise ValueError(
+            "Reconstructed live forecast requires the completed group stage. "
+            f"Found {len(completed_group_matches)} completed group matches, expected {expected_matches}."
+        )
+    completed_group_table = group_table_from_completed_matches(teams_by_group, completed_group_matches)
+    completed_knockout_matches = completed_knockout_matches_from_fixture_frame(
+        live_fixtures,
+        knockout_bracket,
+        team_mapping,
+        group_table=completed_group_table,
+        third_place_count=int(tournament_config.get("third_place_qualifiers", 8)),
+    )
+    live_training_matches = completed_fixture_matches_for_training(
+        live_fixtures,
+        team_mapping,
+        include_knockout=True,
+    )
+    if not live_training_matches.empty:
+        matches_clean = merge_live_training_matches(matches_clean, live_training_matches)
+
+    rankings_clean = _load_optional_rankings(raw_rankings_path, team_mapping)
+    matches_with_elo = add_elo_features(matches_clean)
+    features = build_feature_table(matches_with_elo, rankings_clean)
+    requested_columns = model_config.get("baseline_feature_columns") or DEFAULT_FEATURE_COLUMNS
+    feature_columns = available_feature_columns(features, requested_columns)
+    if not feature_columns:
+        raise ValueError("No configured feature columns are available in the generated feature table")
+
+    train_frame = features[pd.to_datetime(features["date"], errors="coerce") < cutoff_ts].copy()
+    if train_frame.empty:
+        raise ValueError(f"No training rows before reconstructed cutoff: {cutoff_ts.date()}")
+    model_specs = model_config.get("models") or {"logistic": {"kind": "logistic"}}
+    primary_model_name = str(model_config.get("primary_model") or next(iter(model_specs.keys())))
+    if primary_model_name not in model_specs:
+        raise ValueError(f"primary_model is not configured under models: {primary_model_name}")
+    primary_model = train_model(
+        _model_from_spec(
+            model_specs[primary_model_name],
+            primary_model_name,
+            int(model_config.get("random_seed", RANDOM_SEED)),
+        ),
+        train_frame,
+        feature_columns,
+        target_column=str(model_config.get("target_column", "target")),
+    )
+
+    ratings = final_elo_ratings(matches_clean, cutoff=cutoff_ts)
+    rating_frame = matches_clean[pd.to_datetime(matches_clean["date"], errors="coerce") < cutoff_ts]
+    average_total_goals = float(
+        tournament_config.get(
+            "average_total_goals",
+            (rating_frame["team_a_score"] + rating_frame["team_b_score"]).mean(),
+        )
+    )
+    simulation_predictor = str(tournament_config.get("simulation_predictor", "elo_poisson"))
+    if simulation_predictor == "elo_poisson":
+        predictor = make_elo_poisson_predictor(ratings, average_total_goals=average_total_goals)
+    elif simulation_predictor == "elo_baseline":
+        predictor = make_elo_probability_predictor(
+            ratings,
+            draw_probability=float(tournament_config.get("draw_probability", 0.24)),
+        )
+    elif simulation_predictor == "ml_outcome":
+        predictor = make_ml_outcome_predictor(
+            primary_model,
+            ratings,
+            latest_ranking_snapshot(
+                rankings_clean,
+                cutoff_ts,
+                inclusive=bool(tournament_config.get("ranking_cutoff_inclusive", False)),
+            ),
+            recent_form_snapshot(matches_clean, cutoff_ts),
+            feature_columns,
+        )
+    else:
+        raise ValueError(f"Unsupported simulation_predictor: {simulation_predictor}")
+
+    simulation_count = int(tournament_config.get("simulation_count", 10_000))
+    simulation_outputs = simulate_tournament_detailed(
+        teams_by_group,
+        predictor,
+        n_simulations=simulation_count,
+        seed=int(model_config.get("random_seed", RANDOM_SEED)),
+        third_place_count=int(tournament_config.get("third_place_qualifiers", 8)),
+        knockout_bracket=knockout_bracket,
+        completed_group_matches=completed_group_matches,
+        completed_knockout_matches=completed_knockout_matches,
+    )
+    group_match_probabilities = match_probability_frame(teams_by_group, predictor)
+    return write_forecast_registry_frames(
+        root,
+        "reconstructed_live",
+        cutoff_ts,
+        primary_model_name,
+        simulation_predictor,
+        simulation_count,
+        feature_columns,
+        {
+            "simulation": simulation_outputs["team_probabilities"],
+            "group_positions": simulation_outputs["group_positions"],
+            "knockout_bracket": simulation_outputs["knockout_bracket"],
+        },
+        match_probabilities=group_match_probabilities,
+        metadata={
+            "reconstructed": True,
+            "forecast_round": forecast_round_key,
+            "source_live_results": registry_path_reference(live_fixtures_path, root),
+        },
+    )
+
+
 def run_analysis(
     data_config_path: str | Path = CONFIG_DIR / "data_config.yaml",
     model_config_path: str | Path = CONFIG_DIR / "model_config.yaml",
@@ -637,8 +1268,12 @@ def run_analysis(
     tournament_config_path: str | Path = CONFIG_DIR / "tournament_2026.yaml",
     root: Path = PROJECT_ROOT,
     live: bool = False,
+    pre_knockout: bool = False,
     simulation_profile: str | None = None,
 ) -> dict[str, Path | None]:
+    if live and pre_knockout:
+        raise ValueError("Use either live=True or pre_knockout=True, not both")
+
     data_config = read_yaml(resolve_project_path(data_config_path, root))
     model_config = read_yaml(resolve_project_path(model_config_path, root))
     backtest_config = read_yaml(resolve_project_path(backtest_config_path, root))
@@ -654,24 +1289,47 @@ def run_analysis(
 
     team_mapping_path = data_config.get("team_mapping_path")
     team_mapping = load_team_mapping(str(resolve_project_path(team_mapping_path, root))) if team_mapping_path else {}
-    mode = "live" if live else str(tournament_config.get("mode", "pre_tournament"))
+    mode = "live" if live else "pre_knockout" if pre_knockout else str(tournament_config.get("mode", "pre_tournament"))
     matches_clean = clean_matches(read_csv(raw_matches_path), team_mapping)
+    teams_by_group = load_teams_by_group(tournament_config, root)
+    knockout_bracket = resolve_knockout_bracket_config(tournament_config, root)
     completed_group_matches: list[dict[str, Any]] = []
+    completed_knockout_matches: list[dict[str, Any]] = []
+    completed_group_table = pd.DataFrame()
     live_fixtures_path = resolve_project_path(
         tournament_config.get("live_results_path", "data/raw/world_cup_2026_matches.csv"),
         root,
     )
-    if mode == "live":
+    live_fixtures: pd.DataFrame | None = None
+    if mode in {"live", "pre_knockout"}:
         if not live_fixtures_path.exists():
             raise FileNotFoundError(f"Live fixture/results file not found: {live_fixtures_path}")
         live_fixtures = read_csv(live_fixtures_path)
         completed_group_matches = completed_group_matches_from_fixture_frame(live_fixtures, team_mapping)
-        live_training_matches = completed_fixture_matches_for_training(live_fixtures, team_mapping)
+        if len(completed_group_matches) >= expected_group_match_count(teams_by_group):
+            completed_group_table = group_table_from_completed_matches(teams_by_group, completed_group_matches)
+        if mode == "pre_knockout":
+            expected_matches = expected_group_match_count(teams_by_group)
+            if len(completed_group_matches) < expected_matches:
+                raise ValueError(
+                    "Pre-knockout forecast requires the completed group stage. "
+                    f"Found {len(completed_group_matches)} completed group matches, expected {expected_matches}."
+                )
+        if mode == "live":
+            completed_knockout_matches = completed_knockout_matches_from_fixture_frame(
+                live_fixtures,
+                knockout_bracket,
+                team_mapping,
+                group_table=completed_group_table,
+                third_place_count=int(tournament_config.get("third_place_qualifiers", 8)),
+            )
+        live_training_matches = completed_fixture_matches_for_training(
+            live_fixtures,
+            team_mapping,
+            include_knockout=mode == "live",
+        )
         if not live_training_matches.empty:
-            matches_clean = pd.concat([matches_clean, live_training_matches], ignore_index=True)
-            matches_clean = matches_clean.drop_duplicates(
-                subset=["date", "team_a", "team_b", "team_a_score", "team_b_score", "tournament"]
-            ).sort_values(["date", "team_a", "team_b"]).reset_index(drop=True)
+            matches_clean = merge_live_training_matches(matches_clean, live_training_matches)
     rankings_clean = _load_optional_rankings(raw_rankings_path, team_mapping)
 
     processed_matches_path = resolve_project_path(data_config["processed_matches_path"], root)
@@ -708,10 +1366,14 @@ def run_analysis(
     )
 
     cutoff = pd.Timestamp(tournament_config.get("data_cutoff", data_config.get("pre_tournament_cutoff", "2026-06-11")))
-    if mode == "live" and completed_group_matches:
-        live_dates = pd.to_datetime(read_csv(live_fixtures_path).query("status == 'completed'")["date"], errors="coerce")
+    if mode == "live" and live_fixtures is not None:
+        live_dates = _completed_fixture_dates(live_fixtures)
         if live_dates.notna().any():
             cutoff = live_dates.max() + pd.Timedelta(days=1)
+    elif mode == "pre_knockout" and live_fixtures is not None:
+        group_dates = _group_stage_completed_dates(live_fixtures)
+        if group_dates.notna().any():
+            cutoff = group_dates.max() + pd.Timedelta(days=1)
     train_frame = features[features["date"] < cutoff].copy()
     if train_frame.empty:
         raise ValueError(f"No training rows before tournament cutoff: {cutoff.date()}")
@@ -737,8 +1399,6 @@ def run_analysis(
     simulation_interval_output_path: Path | None = None
     match_probabilities_output_path: Path | None = None
     forecast_registry_output_path: Path | None = None
-    teams_by_group = load_teams_by_group(tournament_config, root)
-    knockout_bracket = resolve_knockout_bracket_config(tournament_config, root)
     if teams_by_group:
         ratings = final_elo_ratings(matches_clean, cutoff=cutoff)
         rating_frame = matches_clean[pd.to_datetime(matches_clean["date"], errors="coerce") < cutoff]
@@ -778,8 +1438,9 @@ def run_analysis(
             third_place_count=int(tournament_config.get("third_place_qualifiers", 8)),
             knockout_bracket=knockout_bracket,
             completed_group_matches=completed_group_matches,
+            completed_knockout_matches=completed_knockout_matches,
         )
-        suffix = "_live" if mode == "live" else ""
+        suffix = "_live" if mode == "live" else "_pre_knockout" if mode == "pre_knockout" else ""
         simulation_output_path = root / "outputs" / "simulations" / f"team_probabilities_2026{suffix}.csv"
         group_positions_output_path = root / "outputs" / "simulations" / f"group_position_probabilities_2026{suffix}.csv"
         bracket_output_path = root / "outputs" / "simulations" / f"predicted_knockout_bracket_2026{suffix}.csv"
@@ -814,6 +1475,7 @@ def run_analysis(
                         third_place_count=int(tournament_config.get("third_place_qualifiers", 8)),
                         knockout_bracket=knockout_bracket,
                         completed_group_matches=completed_group_matches,
+                        completed_knockout_matches=completed_knockout_matches,
                     ),
                     simulation_interval_output_path,
                 )

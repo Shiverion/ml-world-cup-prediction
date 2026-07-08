@@ -515,8 +515,14 @@ def _simulate_configured_knockout(
     bracket_config: Mapping[str, Any],
     third_place_count: int,
     bracket_counts: dict[tuple[str, int], dict[str, Counter[str]]] | None = None,
+    completed_knockout_matches: Sequence[Mapping[str, Any]] | None = None,
 ) -> None:
     winners_by_match: dict[int, str] = {}
+    completed_by_match = {
+        int(match["match"]): match
+        for match in completed_knockout_matches or []
+        if "match" in match
+    }
     round_plan = [
         ("round_of_32", "reach_r16"),
         ("round_of_16", "reach_qf"),
@@ -559,21 +565,28 @@ def _simulate_configured_knockout(
 
         for match in match_records:
             match_id = int(match["match"])
+            completed_match = completed_by_match.get(match_id)
+            team_a = str(completed_match.get("team_a") or match["team_a"]) if completed_match else str(match["team_a"])
+            team_b = str(completed_match.get("team_b") or match["team_b"]) if completed_match else str(match["team_b"])
             if bracket_counts is not None:
                 key = (round_key, match_id)
-                bracket_counts[key]["team_a"][match["team_a"]] += 1
-                bracket_counts[key]["team_b"][match["team_b"]] += 1
-                bracket_counts[key]["appearance"][match["team_a"]] += 1
-                bracket_counts[key]["appearance"][match["team_b"]] += 1
-            winner = simulate_knockout_match(
-                match["team_a"],
-                match["team_b"],
-                predict_match,
-                rng,
-                {"stage": stage_names[round_key], "match": match["match"]},
-            )
+                bracket_counts[key]["team_a"][team_a] += 1
+                bracket_counts[key]["team_b"][team_b] += 1
+                bracket_counts[key]["appearance"][team_a] += 1
+                bracket_counts[key]["appearance"][team_b] += 1
+            if completed_match:
+                winner = str(completed_match["winner"])
+            else:
+                winner = simulate_knockout_match(
+                    team_a,
+                    team_b,
+                    predict_match,
+                    rng,
+                    {"stage": stage_names[round_key], "match": match["match"]},
+                )
             winners_by_match[match_id] = winner
-            counts[winner][milestone] += 1
+            if winner in counts:
+                counts[winner][milestone] += 1
             if bracket_counts is not None:
                 bracket_counts[(round_key, match_id)]["winner"][winner] += 1
 
@@ -649,6 +662,7 @@ def simulate_tournament_detailed(
     third_place_count: int = 8,
     knockout_bracket: Mapping[str, Any] | None = None,
     completed_group_matches: Sequence[Mapping[str, Any]] | None = None,
+    completed_knockout_matches: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, pd.DataFrame]:
     rng = np.random.default_rng(seed)
     all_teams = [team for teams in teams_by_group.values() for team in teams]
@@ -701,6 +715,7 @@ def simulate_tournament_detailed(
                 knockout_bracket,
                 third_place_count,
                 bracket_counts,
+                completed_knockout_matches,
             )
         else:
             pairs = pair_seeded_qualifiers(qualifier_teams)
@@ -735,6 +750,7 @@ def simulate_tournament(
     third_place_count: int = 8,
     knockout_bracket: Mapping[str, Any] | None = None,
     completed_group_matches: Sequence[Mapping[str, Any]] | None = None,
+    completed_knockout_matches: Sequence[Mapping[str, Any]] | None = None,
 ) -> pd.DataFrame:
     return simulate_tournament_detailed(
         teams_by_group,
@@ -744,4 +760,5 @@ def simulate_tournament(
         third_place_count=third_place_count,
         knockout_bracket=knockout_bracket,
         completed_group_matches=completed_group_matches,
+        completed_knockout_matches=completed_knockout_matches,
     )["team_probabilities"]

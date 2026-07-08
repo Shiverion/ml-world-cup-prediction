@@ -21,6 +21,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--tournament-config", default=ROOT / "configs" / "tournament_2026.yaml")
     parser.add_argument("--live", action="store_true", help="Lock completed 2026 matches and write live probabilities.")
     parser.add_argument(
+        "--pre-knockout",
+        action="store_true",
+        help="Freeze a post-group-stage, pre-knockout forecast from completed group-stage results.",
+    )
+    parser.add_argument(
         "--profile",
         default=None,
         help="Simulation runtime profile from tournament config, for example dev, local, or publication.",
@@ -38,6 +43,7 @@ def main() -> None:
             tournament_config_path=args.tournament_config,
             root=ROOT,
             live=args.live,
+            pre_knockout=args.pre_knockout,
             simulation_profile=args.profile,
         )
     except (FileNotFoundError, ValueError) as exc:

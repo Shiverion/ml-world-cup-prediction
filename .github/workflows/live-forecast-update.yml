@@ -1,0 +1,79 @@
+name: Live forecast update
+
+on:
+  workflow_dispatch:
+  schedule:
+    # GitHub cron is UTC. These windows cover the 2026 tournament dates plus the day after the final.
+    - cron: "*/30 * 11-30 6 *"
+      timezone: "UTC"
+    - cron: "*/30 * 1-20 7 *"
+      timezone: "UTC"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: live-forecast-update
+  cancel-in-progress: false
+
+jobs:
+  update-live-forecast:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Download latest source data
+        env:
+          WORLD_CUP_2026_URL: ${{ vars.WORLD_CUP_2026_URL }}
+        run: |
+          if [ -n "$WORLD_CUP_2026_URL" ]; then
+            python scripts/download_data.py --world-cup-2026-url "$WORLD_CUP_2026_URL"
+          else
+            python scripts/download_data.py
+          fi
+
+      - name: Check update window
+        id: gate
+        run: |
+          python scripts/live_update_gate.py \
+            --fixtures data/raw/world_cup_2026_matches.csv \
+            --schedule-timezone UTC \
+            --finish-buffer-minutes 210 \
+            --lookback-hours 14 \
+            --github-output "$GITHUB_OUTPUT"
+
+          if git status --porcelain -- data/raw/world_cup_2026_matches.csv data/raw/fifa_rankings.csv data/raw/international_matches.csv | grep . >/dev/null; then
+            echo "source_changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "source_changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Rebuild live forecast
+        if: github.event_name == 'workflow_dispatch' || (steps.gate.outputs.eligible == 'true' && steps.gate.outputs.source_changed == 'true')
+        run: python scripts/run_analysis.py --live --profile dev
+
+      - name: Commit updated data and forecast outputs
+        if: github.event_name == 'workflow_dispatch' || (steps.gate.outputs.eligible == 'true' && steps.gate.outputs.source_changed == 'true')
+        run: |
+          if git status --porcelain | grep . >/dev/null; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add data/raw data/processed outputs
+            git commit -m "Update live World Cup forecast"
+            git push
+          else
+            echo "No changed files to commit."
+          fi
