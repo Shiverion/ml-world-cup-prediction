@@ -378,6 +378,7 @@ def forecast_snapshots() -> list[dict[str, object]]:
                 "mode": mode,
                 "cutoff": pd.Timestamp(cutoff),
                 "bracket_path": bracket_path,
+                "metadata": config.get("metadata") or {},
             }
         )
     return sorted(snapshots, key=lambda item: (pd.Timestamp(item["cutoff"]), str(item["directory"])))
@@ -1769,6 +1770,27 @@ with bracket_tab:
                 "Live locks completed knockout results into the bracket path; prediction status is evaluated against "
                 "the latest valid snapshot before each round starts."
             )
+            live_snapshots = [
+                snapshot
+                for snapshot in forecast_snapshots()
+                if str(snapshot.get("mode", "")) == "live"
+            ]
+            if live_snapshots:
+                latest_live_snapshot = max(
+                    live_snapshots,
+                    key=lambda snapshot: pd.Timestamp(snapshot["cutoff"]),
+                )
+                live_metadata = latest_live_snapshot.get("metadata") or {}
+                if live_metadata.get("anchored_live_update"):
+                    anchor_weight = float(live_metadata.get("anchor_model_weight", 0.0))
+                    live_weight = float(live_metadata.get("live_model_weight", 0.0))
+                    knockout_count = int(live_metadata.get("live_knockout_training_matches", 0))
+                    st.caption(
+                        "Live model blend: "
+                        f"{format_probability(anchor_weight)} pre-knockout anchor + "
+                        f"{format_probability(live_weight)} knockout-updated model "
+                        f"from {knockout_count} completed knockout matches."
+                    )
         else:
             bracket = bracket_prediction_status(
                 source_bracket,

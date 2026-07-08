@@ -498,6 +498,7 @@ def write_forecast_registry(
     output_paths: Mapping[str, Path | None],
     match_probabilities: pd.DataFrame | None = None,
     known_missing_data: Sequence[str] | None = None,
+    metadata: Mapping[str, Any] | None = None,
 ) -> Path:
     mode_slug = forecast_registry_mode_slug(mode)
     registry_dir = root / "outputs" / "forecast_registry" / f"{cutoff.date()}_{mode_slug}"
@@ -514,6 +515,7 @@ def write_forecast_registry(
         feature_columns,
         {name: registry_path_reference(path, root) for name, path in output_paths.items() if path is not None},
         known_missing_data=known_missing_data,
+        metadata=metadata,
     )
 
     if output_paths.get("simulation"):

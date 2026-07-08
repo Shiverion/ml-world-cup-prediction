@@ -39,6 +39,7 @@ from worldcup_prediction.simulator import (
     MatchProbabilityFn,
     SimulatedMatch,
     build_round_of_32_bracket,
+    normalize_match_probabilities,
     poisson_outcome_probabilities,
     rank_group,
     simulate_tournament_detailed,
@@ -869,6 +870,168 @@ def make_ml_outcome_predictor(
     return predict
 
 
+def live_model_update_weight(
+    completed_knockout_matches: Sequence[Mapping[str, Any]] | int,
+    tournament_config: Mapping[str, Any],
+) -> float:
+    update_config = tournament_config.get("live_model_update") or {}
+    if not bool(update_config.get("enabled", True)):
+        return 1.0
+
+    completed_count = (
+        int(completed_knockout_matches)
+        if isinstance(completed_knockout_matches, int)
+        else len(completed_knockout_matches)
+    )
+    if completed_count <= 0:
+        return 0.0
+
+    prior_strength = float(
+        update_config.get(
+            "prior_strength",
+            update_config.get("knockout_prior_matches", 80.0),
+        )
+    )
+    max_live_weight = float(update_config.get("max_live_weight", 0.35))
+    if prior_strength <= 0:
+        raw_weight = 1.0
+    else:
+        raw_weight = completed_count / (completed_count + prior_strength)
+    return max(0.0, min(max_live_weight, raw_weight))
+
+
+def blend_match_probability_predictors(
+    anchor_predictor: MatchProbabilityFn,
+    live_predictor: MatchProbabilityFn,
+    live_weight: float,
+) -> MatchProbabilityFn:
+    live_weight = max(0.0, min(1.0, float(live_weight)))
+    anchor_weight = 1.0 - live_weight
+
+    def predict(team_a: str, team_b: str, context: Mapping[str, Any] | None = None) -> dict[str, float]:
+        anchor_probabilities = normalize_match_probabilities(anchor_predictor(team_a, team_b, context))
+        live_probabilities = normalize_match_probabilities(live_predictor(team_a, team_b, context))
+        team_a_win = (
+            anchor_weight * anchor_probabilities["team_a_win"]
+            + live_weight * live_probabilities["team_a_win"]
+        )
+        draw = anchor_weight * anchor_probabilities["draw"] + live_weight * live_probabilities["draw"]
+        team_a_loss = (
+            anchor_weight * anchor_probabilities["team_b_win"]
+            + live_weight * live_probabilities["team_b_win"]
+        )
+        return {
+            "team_a_loss": team_a_loss,
+            "draw": draw,
+            "team_a_win": team_a_win,
+        }
+
+    return predict
+
+
+def _live_update_metadata(
+    live_weight: float,
+    completed_knockout_matches: Sequence[Mapping[str, Any]],
+    tournament_config: Mapping[str, Any],
+) -> dict[str, Any]:
+    update_config = tournament_config.get("live_model_update") or {}
+    return {
+        "anchored_live_update": True,
+        "anchor_model_weight": round(1.0 - live_weight, 4),
+        "live_model_weight": round(live_weight, 4),
+        "live_knockout_training_matches": len(completed_knockout_matches),
+        "live_update_prior_strength": update_config.get(
+            "prior_strength",
+            update_config.get("knockout_prior_matches", 80.0),
+        ),
+        "live_update_max_live_weight": update_config.get("max_live_weight", 0.35),
+    }
+
+
+def _train_primary_model_for_cutoff(
+    features: pd.DataFrame,
+    cutoff: pd.Timestamp,
+    model_config: Mapping[str, Any],
+    model_specs: Mapping[str, Any],
+    primary_model_name: str,
+    feature_columns: Sequence[str],
+    empty_message: str,
+) -> object:
+    train_frame = features[pd.to_datetime(features["date"], errors="coerce") < cutoff].copy()
+    if train_frame.empty:
+        raise ValueError(empty_message)
+    return train_model(
+        _model_from_spec(
+            model_specs[primary_model_name],
+            primary_model_name,
+            int(model_config.get("random_seed", RANDOM_SEED)),
+        ),
+        train_frame,
+        feature_columns,
+        target_column=str(model_config.get("target_column", "target")),
+    )
+
+
+def _make_anchored_live_predictor(
+    live_model: object,
+    anchor_matches_clean: pd.DataFrame,
+    rankings_clean: pd.DataFrame | None,
+    cutoff: pd.Timestamp,
+    model_config: Mapping[str, Any],
+    model_specs: Mapping[str, Any],
+    primary_model_name: str,
+    feature_columns: Sequence[str],
+    ratings: Mapping[str, float],
+    live_matches_clean: pd.DataFrame,
+    completed_knockout_matches: Sequence[Mapping[str, Any]],
+    tournament_config: Mapping[str, Any],
+) -> tuple[MatchProbabilityFn, dict[str, Any] | None]:
+    live_predictor = make_ml_outcome_predictor(
+        live_model,
+        ratings,
+        latest_ranking_snapshot(
+            rankings_clean,
+            cutoff,
+            inclusive=bool(tournament_config.get("ranking_cutoff_inclusive", False)),
+        ),
+        recent_form_snapshot(live_matches_clean, cutoff),
+        feature_columns,
+    )
+    live_weight = live_model_update_weight(completed_knockout_matches, tournament_config)
+    update_config = tournament_config.get("live_model_update") or {}
+    if live_weight >= 1.0 or not bool(update_config.get("enabled", True)) or not completed_knockout_matches:
+        return live_predictor, None
+
+    anchor_features = build_feature_table(add_elo_features(anchor_matches_clean), rankings_clean)
+    missing_columns = sorted(set(feature_columns) - set(anchor_features.columns))
+    if missing_columns:
+        raise ValueError(f"Anchor training data is missing columns: {missing_columns}")
+    anchor_model = _train_primary_model_for_cutoff(
+        anchor_features,
+        cutoff,
+        model_config,
+        model_specs,
+        primary_model_name,
+        feature_columns,
+        f"No anchor training rows before tournament cutoff: {cutoff.date()}",
+    )
+    anchor_predictor = make_ml_outcome_predictor(
+        anchor_model,
+        ratings,
+        latest_ranking_snapshot(
+            rankings_clean,
+            cutoff,
+            inclusive=bool(tournament_config.get("ranking_cutoff_inclusive", False)),
+        ),
+        recent_form_snapshot(live_matches_clean, cutoff),
+        feature_columns,
+    )
+    return (
+        blend_match_probability_predictors(anchor_predictor, live_predictor, live_weight),
+        _live_update_metadata(live_weight, completed_knockout_matches, tournament_config),
+    )
+
+
 def _load_optional_rankings(path: Path, team_mapping: Mapping[str, str]) -> pd.DataFrame | None:
     if not path.exists():
         return None
@@ -1147,6 +1310,7 @@ def run_reconstructed_live_snapshot(
     )
 
     matches_clean = clean_matches(read_csv(raw_matches_path), team_mapping)
+    anchor_matches_clean = matches_clean.copy()
     completed_group_matches = completed_group_matches_from_fixture_frame(live_fixtures, team_mapping)
     expected_matches = expected_group_match_count(teams_by_group)
     if len(completed_group_matches) < expected_matches:
@@ -1167,6 +1331,13 @@ def run_reconstructed_live_snapshot(
         team_mapping,
         include_knockout=True,
     )
+    anchor_live_training_matches = completed_fixture_matches_for_training(
+        live_fixtures,
+        team_mapping,
+        include_knockout=False,
+    )
+    if not anchor_live_training_matches.empty:
+        anchor_matches_clean = merge_live_training_matches(anchor_matches_clean, anchor_live_training_matches)
     if not live_training_matches.empty:
         matches_clean = merge_live_training_matches(matches_clean, live_training_matches)
 
@@ -1205,6 +1376,7 @@ def run_reconstructed_live_snapshot(
         )
     )
     simulation_predictor = str(tournament_config.get("simulation_predictor", "elo_poisson"))
+    forecast_metadata: dict[str, Any] | None = None
     if simulation_predictor == "elo_poisson":
         predictor = make_elo_poisson_predictor(ratings, average_total_goals=average_total_goals)
     elif simulation_predictor == "elo_baseline":
@@ -1213,16 +1385,19 @@ def run_reconstructed_live_snapshot(
             draw_probability=float(tournament_config.get("draw_probability", 0.24)),
         )
     elif simulation_predictor == "ml_outcome":
-        predictor = make_ml_outcome_predictor(
+        predictor, forecast_metadata = _make_anchored_live_predictor(
             primary_model,
-            ratings,
-            latest_ranking_snapshot(
-                rankings_clean,
-                cutoff_ts,
-                inclusive=bool(tournament_config.get("ranking_cutoff_inclusive", False)),
-            ),
-            recent_form_snapshot(matches_clean, cutoff_ts),
+            anchor_matches_clean,
+            rankings_clean,
+            cutoff_ts,
+            model_config,
+            model_specs,
+            primary_model_name,
             feature_columns,
+            ratings,
+            matches_clean,
+            completed_knockout_matches,
+            tournament_config,
         )
     else:
         raise ValueError(f"Unsupported simulation_predictor: {simulation_predictor}")
@@ -1257,6 +1432,7 @@ def run_reconstructed_live_snapshot(
             "reconstructed": True,
             "forecast_round": forecast_round_key,
             "source_live_results": registry_path_reference(live_fixtures_path, root),
+            **(forecast_metadata or {}),
         },
     )
 
@@ -1291,6 +1467,7 @@ def run_analysis(
     team_mapping = load_team_mapping(str(resolve_project_path(team_mapping_path, root))) if team_mapping_path else {}
     mode = "live" if live else "pre_knockout" if pre_knockout else str(tournament_config.get("mode", "pre_tournament"))
     matches_clean = clean_matches(read_csv(raw_matches_path), team_mapping)
+    anchor_matches_clean = matches_clean.copy()
     teams_by_group = load_teams_by_group(tournament_config, root)
     knockout_bracket = resolve_knockout_bracket_config(tournament_config, root)
     completed_group_matches: list[dict[str, Any]] = []
@@ -1323,6 +1500,13 @@ def run_analysis(
                 group_table=completed_group_table,
                 third_place_count=int(tournament_config.get("third_place_qualifiers", 8)),
             )
+            anchor_live_training_matches = completed_fixture_matches_for_training(
+                live_fixtures,
+                team_mapping,
+                include_knockout=False,
+            )
+            if not anchor_live_training_matches.empty:
+                anchor_matches_clean = merge_live_training_matches(anchor_matches_clean, anchor_live_training_matches)
         live_training_matches = completed_fixture_matches_for_training(
             live_fixtures,
             team_mapping,
@@ -1409,6 +1593,7 @@ def run_analysis(
             )
         )
         simulation_predictor = str(tournament_config.get("simulation_predictor", "elo_poisson"))
+        forecast_metadata: dict[str, Any] | None = None
         if simulation_predictor == "elo_poisson":
             predictor = make_elo_poisson_predictor(ratings, average_total_goals=average_total_goals)
         elif simulation_predictor == "elo_baseline":
@@ -1417,17 +1602,33 @@ def run_analysis(
                 draw_probability=float(tournament_config.get("draw_probability", 0.24)),
             )
         elif simulation_predictor == "ml_outcome":
-            predictor = make_ml_outcome_predictor(
-                primary_model,
-                ratings,
-                latest_ranking_snapshot(
+            if mode == "live":
+                predictor, forecast_metadata = _make_anchored_live_predictor(
+                    primary_model,
+                    anchor_matches_clean,
                     rankings_clean,
                     cutoff,
-                    inclusive=bool(tournament_config.get("ranking_cutoff_inclusive", False)),
-                ),
-                recent_form_snapshot(matches_clean, cutoff),
-                feature_columns,
-            )
+                    model_config,
+                    model_specs,
+                    primary_model_name,
+                    feature_columns,
+                    ratings,
+                    matches_clean,
+                    completed_knockout_matches,
+                    tournament_config,
+                )
+            else:
+                predictor = make_ml_outcome_predictor(
+                    primary_model,
+                    ratings,
+                    latest_ranking_snapshot(
+                        rankings_clean,
+                        cutoff,
+                        inclusive=bool(tournament_config.get("ranking_cutoff_inclusive", False)),
+                    ),
+                    recent_form_snapshot(matches_clean, cutoff),
+                    feature_columns,
+                )
         else:
             raise ValueError(f"Unsupported simulation_predictor: {simulation_predictor}")
         simulation_outputs = simulate_tournament_detailed(
@@ -1495,6 +1696,7 @@ def run_analysis(
                 "simulation_interval": simulation_interval_output_path,
             },
             match_probabilities=group_match_probabilities,
+            metadata=forecast_metadata,
         )
 
     return {

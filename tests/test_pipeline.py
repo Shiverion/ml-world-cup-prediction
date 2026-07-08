@@ -4,12 +4,14 @@ import pytest
 
 from worldcup_prediction.pipeline import (
     apply_simulation_profile,
+    blend_match_probability_predictors,
     completed_group_matches_from_fixture_frame,
     completed_knockout_matches_from_fixture_frame,
     final_elo_ratings,
     fixture_frame_for_reconstructed_round,
     group_table_from_completed_matches,
     latest_ranking_snapshot,
+    live_model_update_weight,
     make_elo_probability_predictor,
     make_elo_poisson_predictor,
     make_ml_outcome_predictor,
@@ -156,6 +158,33 @@ def test_ml_outcome_predictor_builds_cutoff_safe_fixture_features():
     assert model.last_features.loc[0, "form_points_diff_5"] == pytest.approx(3.0)
     assert model.last_features.loc[0, "goal_diff_form_10"] == pytest.approx(2.0)
     assert model.last_features.loc[0, "is_world_cup_group"] == pytest.approx(1.0)
+
+
+def test_live_model_update_weight_uses_prior_strength_and_cap():
+    config = {"live_model_update": {"prior_strength": 80, "max_live_weight": 0.35}}
+
+    assert live_model_update_weight([{}] * 16, config) == pytest.approx(16 / 96)
+    assert live_model_update_weight([{}] * 200, config) == pytest.approx(0.35)
+
+
+def test_blend_match_probability_predictors_mixes_anchor_and_live_probabilities():
+    def anchor_predictor(team_a, team_b, context=None):
+        return {"team_a_win": 0.7, "draw": 0.2, "team_a_loss": 0.1}
+
+    def live_predictor(team_a, team_b, context=None):
+        return {"team_a_win": 0.4, "draw": 0.1, "team_a_loss": 0.5}
+
+    predictor = blend_match_probability_predictors(anchor_predictor, live_predictor, live_weight=0.25)
+
+    probabilities = predictor("A", "B", {"stage": "Round of 16"})
+
+    assert probabilities == pytest.approx(
+        {
+            "team_a_win": 0.625,
+            "draw": 0.175,
+            "team_a_loss": 0.2,
+        }
+    )
 
 
 def test_completed_group_matches_from_fixture_frame_standardizes_names():

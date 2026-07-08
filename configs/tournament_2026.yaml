@@ -9,6 +9,10 @@ simulation_count: 3000
 simulation_predictor: ml_outcome
 draw_probability: 0.24
 live_results_path: data/raw/world_cup_2026_matches.csv
+live_model_update:
+  enabled: true
+  prior_strength: 80
+  max_live_weight: 0.35
 simulation_interval:
   enabled: true
   seed_count: 3
