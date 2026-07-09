@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import worldcup_prediction.pipeline as pipeline
 from worldcup_prediction.pipeline import (
     apply_simulation_profile,
     blend_match_probability_predictors,
@@ -185,6 +186,90 @@ def test_blend_match_probability_predictors_mixes_anchor_and_live_probabilities(
             "team_a_loss": 0.2,
         }
     )
+
+
+def test_anchored_live_predictor_freezes_anchor_snapshot(monkeypatch):
+    live_cutoff = pd.Timestamp("2026-07-08")
+    anchor_cutoff = pd.Timestamp("2026-06-28")
+    feature_columns = ["elo_diff"]
+    live_ratings = {"Spain": 1550.0, "Argentina": 1560.0}
+    anchor_ratings = {"Spain": 1500.0, "Argentina": 1520.0}
+    predictor_calls = []
+    train_cutoffs = []
+    rating_cutoffs = []
+    snapshot_cutoffs = []
+
+    def fake_make_ml_outcome_predictor(model, ratings, ranking_snapshot, form_snapshot, columns):
+        predictor_calls.append(
+            {
+                "model": model,
+                "ratings": ratings,
+                "ranking_snapshot": ranking_snapshot,
+                "form_snapshot": form_snapshot,
+                "columns": columns,
+            }
+        )
+        return lambda team_a, team_b, context=None: {"team_a_win": 0.6, "draw": 0.2, "team_a_loss": 0.2}
+
+    def fake_build_feature_table(matches, rankings):
+        return pd.DataFrame({"date": ["2026-06-01"], "target": [2], "elo_diff": [0.0]})
+
+    def fake_train_primary_model(features, cutoff, model_config, model_specs, primary_model_name, columns, empty_message):
+        train_cutoffs.append(pd.Timestamp(cutoff))
+        return "anchor_model"
+
+    def fake_final_elo_ratings(matches, cutoff):
+        rating_cutoffs.append(pd.Timestamp(cutoff))
+        return anchor_ratings
+
+    def fake_latest_ranking_snapshot(rankings, cutoff, inclusive=False):
+        snapshot_cutoffs.append(("rank", pd.Timestamp(cutoff)))
+        return {"cutoff": pd.Timestamp(cutoff).isoformat()}
+
+    def fake_recent_form_snapshot(matches, cutoff):
+        snapshot_cutoffs.append(("form", pd.Timestamp(cutoff)))
+        return {"cutoff": pd.Timestamp(cutoff).isoformat()}
+
+    monkeypatch.setattr(pipeline, "make_ml_outcome_predictor", fake_make_ml_outcome_predictor)
+    monkeypatch.setattr(pipeline, "add_elo_features", lambda matches: matches)
+    monkeypatch.setattr(pipeline, "build_feature_table", fake_build_feature_table)
+    monkeypatch.setattr(pipeline, "_train_primary_model_for_cutoff", fake_train_primary_model)
+    monkeypatch.setattr(pipeline, "final_elo_ratings", fake_final_elo_ratings)
+    monkeypatch.setattr(pipeline, "latest_ranking_snapshot", fake_latest_ranking_snapshot)
+    monkeypatch.setattr(pipeline, "recent_form_snapshot", fake_recent_form_snapshot)
+
+    predictor, metadata = pipeline._make_anchored_live_predictor(
+        "live_model",
+        pd.DataFrame({"date": ["2026-06-01", "2026-07-04"]}),
+        None,
+        live_cutoff,
+        {"random_seed": 42},
+        {"logistic": {"kind": "logistic"}},
+        "logistic",
+        feature_columns,
+        live_ratings,
+        pd.DataFrame({"date": ["2026-07-04"]}),
+        [{"round": "round_of_32"}],
+        {"live_model_update": {"prior_strength": 4, "max_live_weight": 0.35}},
+        anchor_cutoff=anchor_cutoff,
+    )
+
+    probabilities = predictor("Spain", "Argentina", {"stage": "final"})
+
+    assert probabilities == pytest.approx({"team_a_win": 0.6, "draw": 0.2, "team_a_loss": 0.2})
+    assert predictor_calls[0]["model"] == "live_model"
+    assert predictor_calls[0]["ratings"] == live_ratings
+    assert predictor_calls[1]["model"] == "anchor_model"
+    assert predictor_calls[1]["ratings"] == anchor_ratings
+    assert train_cutoffs == [anchor_cutoff]
+    assert rating_cutoffs == [anchor_cutoff]
+    assert ("rank", live_cutoff) in snapshot_cutoffs
+    assert ("form", live_cutoff) in snapshot_cutoffs
+    assert ("rank", anchor_cutoff) in snapshot_cutoffs
+    assert ("form", anchor_cutoff) in snapshot_cutoffs
+    assert metadata["anchor_model_weight"] == pytest.approx(0.8)
+    assert metadata["live_model_weight"] == pytest.approx(0.2)
+    assert metadata["anchor_snapshot_cutoff"] == anchor_cutoff.isoformat()
 
 
 def test_completed_group_matches_from_fixture_frame_standardizes_names():

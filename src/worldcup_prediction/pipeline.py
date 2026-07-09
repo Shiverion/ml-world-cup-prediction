@@ -153,6 +153,13 @@ def _completed_fixture_dates(fixtures: pd.DataFrame) -> pd.Series:
     return pd.to_datetime(completed["date"], errors="coerce")
 
 
+def _pre_knockout_cutoff_from_fixture_frame(fixtures: pd.DataFrame) -> pd.Timestamp | None:
+    group_dates = _group_stage_completed_dates(fixtures)
+    if group_dates.notna().any():
+        return pd.Timestamp(group_dates.max()) + pd.Timedelta(days=1)
+    return None
+
+
 def expected_group_match_count(teams_by_group: Mapping[str, Sequence[str]]) -> int:
     return sum(len(teams) * (len(teams) - 1) // 2 for teams in teams_by_group.values())
 
@@ -1001,9 +1008,10 @@ def _live_update_metadata(
     live_weight: float,
     completed_knockout_matches: Sequence[Mapping[str, Any]],
     tournament_config: Mapping[str, Any],
+    anchor_cutoff: pd.Timestamp | None = None,
 ) -> dict[str, Any]:
     update_config = tournament_config.get("live_model_update") or {}
-    return {
+    metadata = {
         "anchored_live_update": True,
         "anchor_model_weight": round(1.0 - live_weight, 4),
         "live_model_weight": round(live_weight, 4),
@@ -1014,6 +1022,9 @@ def _live_update_metadata(
         ),
         "live_update_max_live_weight": update_config.get("max_live_weight", 0.35),
     }
+    if anchor_cutoff is not None:
+        metadata["anchor_snapshot_cutoff"] = pd.Timestamp(anchor_cutoff).isoformat()
+    return metadata
 
 
 def _train_primary_model_for_cutoff(
@@ -1053,6 +1064,7 @@ def _make_anchored_live_predictor(
     live_matches_clean: pd.DataFrame,
     completed_knockout_matches: Sequence[Mapping[str, Any]],
     tournament_config: Mapping[str, Any],
+    anchor_cutoff: pd.Timestamp | None = None,
 ) -> tuple[MatchProbabilityFn, dict[str, Any] | None]:
     live_predictor = make_ml_outcome_predictor(
         live_model,
@@ -1070,33 +1082,40 @@ def _make_anchored_live_predictor(
     if live_weight >= 1.0 or not bool(update_config.get("enabled", True)) or not completed_knockout_matches:
         return live_predictor, None
 
+    frozen_anchor_cutoff = pd.Timestamp(anchor_cutoff) if anchor_cutoff is not None else cutoff
     anchor_features = build_feature_table(add_elo_features(anchor_matches_clean), rankings_clean)
     missing_columns = sorted(set(feature_columns) - set(anchor_features.columns))
     if missing_columns:
         raise ValueError(f"Anchor training data is missing columns: {missing_columns}")
     anchor_model = _train_primary_model_for_cutoff(
         anchor_features,
-        cutoff,
+        frozen_anchor_cutoff,
         model_config,
         model_specs,
         primary_model_name,
         feature_columns,
-        f"No anchor training rows before tournament cutoff: {cutoff.date()}",
+        f"No anchor training rows before anchor cutoff: {frozen_anchor_cutoff.date()}",
     )
+    anchor_ratings = final_elo_ratings(anchor_matches_clean, cutoff=frozen_anchor_cutoff)
     anchor_predictor = make_ml_outcome_predictor(
         anchor_model,
-        ratings,
+        anchor_ratings,
         latest_ranking_snapshot(
             rankings_clean,
-            cutoff,
+            frozen_anchor_cutoff,
             inclusive=bool(tournament_config.get("ranking_cutoff_inclusive", False)),
         ),
-        recent_form_snapshot(live_matches_clean, cutoff),
+        recent_form_snapshot(anchor_matches_clean, frozen_anchor_cutoff),
         feature_columns,
     )
     return (
         blend_match_probability_predictors(anchor_predictor, live_predictor, live_weight),
-        _live_update_metadata(live_weight, completed_knockout_matches, tournament_config),
+        _live_update_metadata(
+            live_weight,
+            completed_knockout_matches,
+            tournament_config,
+            anchor_cutoff=frozen_anchor_cutoff,
+        ),
     )
 
 
@@ -1386,6 +1405,7 @@ def run_reconstructed_live_snapshot(
             "Reconstructed live forecast requires the completed group stage. "
             f"Found {len(completed_group_matches)} completed group matches, expected {expected_matches}."
         )
+    anchor_cutoff = _pre_knockout_cutoff_from_fixture_frame(live_fixtures) or cutoff_ts
     completed_group_table = group_table_from_completed_matches(teams_by_group, completed_group_matches)
     completed_knockout_matches = completed_knockout_matches_from_fixture_frame(
         live_fixtures,
@@ -1466,6 +1486,7 @@ def run_reconstructed_live_snapshot(
             matches_clean,
             completed_knockout_matches,
             tournament_config,
+            anchor_cutoff=anchor_cutoff,
         )
     else:
         raise ValueError(f"Unsupported simulation_predictor: {simulation_predictor}")
@@ -1546,10 +1567,12 @@ def run_analysis(
         root,
     )
     live_fixtures: pd.DataFrame | None = None
+    anchor_cutoff: pd.Timestamp | None = None
     if mode in {"live", "pre_knockout"}:
         if not live_fixtures_path.exists():
             raise FileNotFoundError(f"Live fixture/results file not found: {live_fixtures_path}")
         live_fixtures = read_csv(live_fixtures_path)
+        anchor_cutoff = _pre_knockout_cutoff_from_fixture_frame(live_fixtures)
         completed_group_matches = completed_group_matches_from_fixture_frame(live_fixtures, team_mapping)
         if len(completed_group_matches) >= expected_group_match_count(teams_by_group):
             completed_group_table = group_table_from_completed_matches(teams_by_group, completed_group_matches)
@@ -1623,9 +1646,8 @@ def run_analysis(
         if live_dates.notna().any():
             cutoff = live_dates.max() + pd.Timedelta(days=1)
     elif mode == "pre_knockout" and live_fixtures is not None:
-        group_dates = _group_stage_completed_dates(live_fixtures)
-        if group_dates.notna().any():
-            cutoff = group_dates.max() + pd.Timedelta(days=1)
+        if anchor_cutoff is not None:
+            cutoff = anchor_cutoff
     train_frame = features[features["date"] < cutoff].copy()
     if train_frame.empty:
         raise ValueError(f"No training rows before tournament cutoff: {cutoff.date()}")
@@ -1684,6 +1706,7 @@ def run_analysis(
                     matches_clean,
                     completed_knockout_matches,
                     tournament_config,
+                    anchor_cutoff=anchor_cutoff,
                 )
             else:
                 predictor = make_ml_outcome_predictor(
