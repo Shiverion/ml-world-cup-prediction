@@ -102,7 +102,13 @@ def probability_column_config(columns: list[str]) -> dict[str, st.column_config.
 def actual_score_display(actual: dict[str, object] | pd.Series) -> str:
     score = f"{actual['team_a_score']}-{actual['team_b_score']}"
     if bool(actual.get("decided_by_penalties", False)):
+        penalties_a = actual.get("team_a_penalties")
+        penalties_b = actual.get("team_b_penalties")
+        if not pd.isna(penalties_a) and not pd.isna(penalties_b):
+            return f"{score} (pens {int(penalties_a)}-{int(penalties_b)})"
         return f"{score} (pens)"
+    if bool(actual.get("decided_after_extra_time", False)) or str(actual.get("winner_method", "")) == "extra_time":
+        return f"{score} (aet)"
     return score
 
 

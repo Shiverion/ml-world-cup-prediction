@@ -344,7 +344,19 @@ def fixture_frame_for_reconstructed_round(
     round_indices = pd.to_numeric(frame["_round_key"].map(knockout_round_index), errors="coerce").fillna(-1)
     known_future = (round_indices >= forecast_index) | (frame["_date"] >= cutoff)
     frame.loc[known_future, "status"] = "scheduled"
-    frame.loc[known_future, ["team_a_score", "team_b_score"]] = pd.NA
+    hidden_columns = [
+        "team_a_score",
+        "team_b_score",
+        "team_a_score_ft",
+        "team_b_score_ft",
+        "team_a_score_et",
+        "team_b_score_et",
+        "team_a_penalties",
+        "team_b_penalties",
+        "winner",
+        "winner_method",
+    ]
+    frame.loc[known_future, [column for column in hidden_columns if column in frame.columns]] = pd.NA
     return frame.drop(columns=["_round_key", "_date"])
 
 
@@ -512,6 +524,41 @@ def _fixture_knockout_match_id(
     return None
 
 
+def _truthy_penalty_marker(value: Any) -> bool:
+    text = _text(value).lower()
+    if not text:
+        return False
+    return text in {"1", "true", "yes", "y", "penalty", "penalties", "pens", "pso", "shootout"} or (
+        ("pen" in text or "shootout" in text) and "no pen" not in text
+    )
+
+
+def _fixture_decided_by_penalties(row: pd.Series) -> bool:
+    explicit_columns = [
+        "decided_by_penalties",
+        "penalty_shootout",
+        "shootout",
+        "penalties",
+        "went_to_penalties",
+    ]
+    if any(column in row.index and _truthy_penalty_marker(row.get(column)) for column in explicit_columns):
+        return True
+
+    penalty_score_pairs = [
+        ("team_a_penalties", "team_b_penalties"),
+        ("team_a_penalty_score", "team_b_penalty_score"),
+        ("penalty_score_a", "penalty_score_b"),
+        ("home_penalties", "away_penalties"),
+        ("home_penalty_score", "away_penalty_score"),
+    ]
+    for left, right in penalty_score_pairs:
+        if left in row.index and right in row.index and not pd.isna(row.get(left)) and not pd.isna(row.get(right)):
+            return True
+
+    text_columns = ["notes", "note", "remarks", "result_notes", "method", "winner_method"]
+    return any(column in row.index and _truthy_penalty_marker(row.get(column)) for column in text_columns)
+
+
 def completed_knockout_matches_from_fixture_frame(
     fixtures: pd.DataFrame,
     bracket_config: Mapping[str, Any] | None,
@@ -552,9 +599,19 @@ def completed_knockout_matches_from_fixture_frame(
         participants_by_match[match_id] = {team_a, team_b}
         score_a = int(float(row["team_a_score"])) if not pd.isna(row.get("team_a_score")) else None
         score_b = int(float(row["team_b_score"])) if not pd.isna(row.get("team_b_score")) else None
+        penalties_a = int(float(row["team_a_penalties"])) if "team_a_penalties" in row and not pd.isna(row.get("team_a_penalties")) else None
+        penalties_b = int(float(row["team_b_penalties"])) if "team_b_penalties" in row and not pd.isna(row.get("team_b_penalties")) else None
+        decided_by_penalties = _fixture_decided_by_penalties(row)
         winner_value = row.get("winner") if "winner" in row else None
-        winner = standardize_team_name(winner_value, team_mapping) if _text(winner_value) else None
-        winner_source = "fixture" if winner is not None else None
+        winner = None
+        winner_source = None
+        if decided_by_penalties and penalties_a is not None and penalties_b is not None:
+            if penalties_a > penalties_b:
+                winner = team_a
+                winner_source = "penalties"
+            elif penalties_b > penalties_a:
+                winner = team_b
+                winner_source = "penalties"
         if winner is None and score_a is not None and score_b is not None:
             if score_a > score_b:
                 winner = team_a
@@ -562,6 +619,9 @@ def completed_knockout_matches_from_fixture_frame(
             elif score_b > score_a:
                 winner = team_b
                 winner_source = "score"
+        if winner is None and _text(winner_value):
+            winner = standardize_team_name(winner_value, team_mapping)
+            winner_source = "fixture"
         if winner is not None:
             winners_by_match[match_id] = winner
             winner_sources_by_match[match_id] = winner_source or "unknown"
@@ -573,8 +633,12 @@ def completed_knockout_matches_from_fixture_frame(
                 "team_b": team_b,
                 "team_a_score": score_a,
                 "team_b_score": score_b,
+                "team_a_penalties": penalties_a,
+                "team_b_penalties": penalties_b,
                 "winner": winner,
                 "completed": bool(row.get("status") == "completed" and score_a is not None and score_b is not None),
+                "decided_by_penalties": decided_by_penalties,
+                "winner_method": _text(row.get("winner_method", "")),
             }
         )
 
@@ -610,9 +674,13 @@ def completed_knockout_matches_from_fixture_frame(
                 "team_b": row["team_b"],
                 "team_a_score": row["team_a_score"],
                 "team_b_score": row["team_b_score"],
+                "team_a_penalties": row["team_a_penalties"],
+                "team_b_penalties": row["team_b_penalties"],
                 "winner": winner,
                 "winner_source": winner_sources_by_match.get(int(row["match"]), "unknown"),
-                "decided_by_penalties": bool(row["team_a_score"] == row["team_b_score"]),
+                "decided_by_penalties": bool(row["decided_by_penalties"]),
+                "winner_method": row["winner_method"],
+                "decided_after_extra_time": row["winner_method"] == "extra_time",
             }
         )
     return rows

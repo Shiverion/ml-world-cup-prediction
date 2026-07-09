@@ -5,7 +5,7 @@ import html
 import json
 import re
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 from urllib.parse import urlencode
 from urllib.request import Request
 from urllib.request import urlopen
@@ -171,29 +171,73 @@ def ranking_source_frame(
     raise ValueError(f"Unsupported ranking source: {source}")
 
 
-def world_cup_2026_matches(url: str = WORLD_CUP_2026_URL) -> pd.DataFrame:
-    with urlopen(url, timeout=30) as response:
-        payload: dict[str, Any] = json.load(response)
+def _score_pair(score: dict[str, Any], key: str) -> list[Any]:
+    values = score.get(key) or [None, None]
+    return list(values) if isinstance(values, list) else [None, None]
 
+
+def _score_winner(team_a: str | None, team_b: str | None, score_a: Any, score_b: Any) -> str | None:
+    if score_a is None or score_b is None:
+        return None
+    if score_a > score_b:
+        return team_a
+    if score_b > score_a:
+        return team_b
+    return None
+
+
+def world_cup_2026_matches_from_payload(payload: Mapping[str, Any]) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
     for match in payload.get("matches", []):
         score = match.get("score") or {}
-        full_time = score.get("ft") or [None, None]
+        full_time = _score_pair(score, "ft")
+        extra_time = _score_pair(score, "et")
+        penalties = _score_pair(score, "p")
+        final_score = extra_time if extra_time[0] is not None and extra_time[1] is not None else full_time
+        team_a = match.get("team1")
+        team_b = match.get("team2")
+        penalty_winner = _score_winner(team_a, team_b, penalties[0], penalties[1])
+        score_winner = _score_winner(team_a, team_b, final_score[0], final_score[1])
+        winner = penalty_winner or score_winner
+        winner_method = (
+            "penalties"
+            if penalty_winner is not None
+            else "extra_time"
+            if extra_time[0] is not None and extra_time[1] is not None
+            else "full_time"
+            if score_winner is not None or (full_time[0] is not None and full_time[1] is not None)
+            else ""
+        )
         group = str(match.get("group", "")).replace("Group ", "").strip()
         rows.append(
             {
+                "match": match.get("num"),
                 "date": match.get("date"),
                 "round": match.get("round", ""),
                 "group": group,
-                "team_a": match.get("team1"),
-                "team_b": match.get("team2"),
-                "team_a_score": full_time[0],
-                "team_b_score": full_time[1],
-                "status": "completed" if full_time[0] is not None and full_time[1] is not None else "scheduled",
+                "team_a": team_a,
+                "team_b": team_b,
+                "team_a_score": final_score[0],
+                "team_b_score": final_score[1],
+                "team_a_score_ft": full_time[0],
+                "team_b_score_ft": full_time[1],
+                "team_a_score_et": extra_time[0],
+                "team_b_score_et": extra_time[1],
+                "team_a_penalties": penalties[0],
+                "team_b_penalties": penalties[1],
+                "winner": winner,
+                "winner_method": winner_method,
+                "status": "completed" if final_score[0] is not None and final_score[1] is not None else "scheduled",
                 "ground": match.get("ground", ""),
             }
         )
     return pd.DataFrame(rows).sort_values(["date", "group", "team_a", "team_b"]).reset_index(drop=True)
+
+
+def world_cup_2026_matches(url: str = WORLD_CUP_2026_URL) -> pd.DataFrame:
+    with urlopen(url, timeout=30) as response:
+        payload: dict[str, Any] = json.load(response)
+    return world_cup_2026_matches_from_payload(payload)
 
 
 def write_frame(frame: pd.DataFrame, path: Path) -> None:

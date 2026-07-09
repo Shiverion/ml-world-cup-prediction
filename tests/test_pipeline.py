@@ -268,18 +268,22 @@ def test_completed_knockout_matches_from_fixture_frame_extracts_match_winner():
     )
 
     assert matches == [
-        {
-            "round": "round_of_16",
-            "match": 89,
-            "team_a": "Czechia",
-            "team_b": "South Korea",
-            "team_a_score": 1,
-            "team_b_score": 2,
-            "winner": "South Korea",
-            "winner_source": "score",
-            "decided_by_penalties": False,
-        }
-    ]
+            {
+                "round": "round_of_16",
+                "match": 89,
+                "team_a": "Czechia",
+                "team_b": "South Korea",
+                "team_a_score": 1,
+                "team_b_score": 2,
+                "team_a_penalties": None,
+                "team_b_penalties": None,
+                "winner": "South Korea",
+                "winner_source": "score",
+                "decided_by_penalties": False,
+                "winner_method": "",
+                "decided_after_extra_time": False,
+            }
+        ]
 
 
 def test_completed_knockout_matches_map_by_teams_and_infer_tied_winners():
@@ -337,6 +341,7 @@ def test_completed_knockout_matches_map_by_teams_and_infer_tied_winners():
                 "status": "completed",
             },
             {
+                "match": 73,
                 "round": "Round of 32",
                 "team_a": "A1",
                 "team_b": "B2",
@@ -378,9 +383,41 @@ def test_completed_knockout_matches_map_by_teams_and_infer_tied_winners():
     assert by_match[74]["team_b"] == "D2"
     assert by_match[74]["winner"] == "D2"
     assert by_match[74]["winner_source"] == "next_round"
-    assert by_match[74]["decided_by_penalties"] is True
+    assert by_match[74]["decided_by_penalties"] is False
     assert by_match[76]["team_a"] == "C1"
     assert by_match[76]["winner"] == "C1"
+
+
+def test_completed_knockout_matches_marks_penalties_only_when_explicit():
+    bracket_config = {
+        "round_of_32": [
+            {"match": 73, "teams": [{"group": "A", "position": 1}, {"group": "B", "position": 2}]},
+        ],
+    }
+    fixtures = pd.DataFrame(
+        [
+            {
+                "match": 73,
+                "round": "Round of 32",
+                "team_a": "A1",
+                "team_b": "B2",
+                "team_a_score": 1,
+                "team_b_score": 1,
+                "team_a_penalties": 4,
+                "team_b_penalties": 3,
+                "status": "completed",
+                "winner_method": "penalties",
+            },
+        ]
+    )
+
+    matches = completed_knockout_matches_from_fixture_frame(fixtures, bracket_config)
+
+    assert matches[0]["winner"] == "A1"
+    assert matches[0]["winner_source"] == "penalties"
+    assert matches[0]["decided_by_penalties"] is True
+    assert matches[0]["team_a_penalties"] == 4
+    assert matches[0]["team_b_penalties"] == 3
 
 
 def test_fixture_frame_for_reconstructed_round_hides_future_rounds():

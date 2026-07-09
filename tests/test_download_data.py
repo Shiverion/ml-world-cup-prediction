@@ -44,3 +44,45 @@ def test_official_fifa_rankings_normalizes_api_payload(monkeypatch):
         {"rank_date": "2026-06-11", "team": "Argentina", "rank": 1, "points": 1877.266571},
         {"rank_date": "2026-06-11", "team": "France", "rank": 2, "points": 1870.919823},
     ]
+
+
+def test_world_cup_2026_matches_preserves_extra_time_and_penalties():
+    payload = {
+        "matches": [
+            {
+                "num": 86,
+                "date": "2026-07-03",
+                "round": "Round of 32",
+                "team1": "Argentina",
+                "team2": "Cape Verde",
+                "score": {"ft": [1, 1], "et": [3, 2], "ht": [1, 0]},
+                "ground": "Miami",
+            },
+            {
+                "num": 96,
+                "date": "2026-07-07",
+                "round": "Round of 16",
+                "team1": "Switzerland",
+                "team2": "Colombia",
+                "score": {"ft": [0, 0], "et": [0, 0], "p": [4, 3], "ht": [0, 0]},
+                "ground": "New York",
+            },
+        ]
+    }
+
+    matches = download_data.world_cup_2026_matches_from_payload(payload)
+    argentina = matches[matches["match"].eq(86)].iloc[0]
+    switzerland = matches[matches["match"].eq(96)].iloc[0]
+
+    assert argentina["team_a_score"] == 3
+    assert argentina["team_b_score"] == 2
+    assert argentina["team_a_score_ft"] == 1
+    assert argentina["team_b_score_ft"] == 1
+    assert argentina["winner"] == "Argentina"
+    assert argentina["winner_method"] == "extra_time"
+    assert switzerland["team_a_score"] == 0
+    assert switzerland["team_b_score"] == 0
+    assert switzerland["team_a_penalties"] == 4
+    assert switzerland["team_b_penalties"] == 3
+    assert switzerland["winner"] == "Switzerland"
+    assert switzerland["winner_method"] == "penalties"
