@@ -232,15 +232,46 @@ def group_stage_accuracy(
         )
     else:
         predicted_qualifiers = set(comparison[comparison["predicted_position"] <= 2]["team"].astype(str))
+
+    predicted_top_two_by_group = (
+        predicted_order[predicted_order["predicted_position"] <= 2]
+        .groupby("group")["team"]
+        .apply(lambda values: set(values.astype(str)))
+        .to_dict()
+    )
+    comparison["top_two_team_correct"] = comparison.apply(
+        lambda row: bool(
+            row["actual_position"] <= 2
+            and str(row["team"]) in predicted_top_two_by_group.get(str(row["group"]), set())
+        ),
+        axis=1,
+    )
+    comparison["top_two_slot_correct"] = comparison["actual_position"].le(2) & comparison["position_correct"]
+
     winner_rows = comparison[comparison["actual_position"] == 1]
     runner_up_rows = comparison[comparison["actual_position"] == 2]
+    top_two_rows = comparison[comparison["actual_position"] <= 2]
+    group_winners_correct = int((winner_rows["predicted_position"] == 1).sum()) if not winner_rows.empty else 0
+    runner_ups_correct = int((runner_up_rows["predicted_position"] == 2).sum()) if not runner_up_rows.empty else 0
+    top_two_team_correct = int(top_two_rows["top_two_team_correct"].sum()) if not top_two_rows.empty else 0
+    top_two_slot_correct = int(top_two_rows["top_two_slot_correct"].sum()) if not top_two_rows.empty else 0
+    top_two_total = int(len(top_two_rows))
     metrics = {
         "qualifier_accuracy": len(predicted_qualifiers & actual_qualifiers) / max(len(actual_qualifiers), 1),
         "exact_position_accuracy": float(comparison["position_correct"].mean()),
-        "group_winner_accuracy": float((winner_rows["predicted_position"] == 1).mean()) if not winner_rows.empty else 0.0,
-        "runner_up_accuracy": float((runner_up_rows["predicted_position"] == 2).mean()) if not runner_up_rows.empty else 0.0,
+        "group_winner_accuracy": group_winners_correct / max(len(winner_rows), 1),
+        "runner_up_accuracy": runner_ups_correct / max(len(runner_up_rows), 1),
+        "top_two_team_accuracy": top_two_team_correct / max(top_two_total, 1),
+        "top_two_slot_accuracy": top_two_slot_correct / max(top_two_total, 1),
         "qualifiers_correct": float(len(predicted_qualifiers & actual_qualifiers)),
         "qualifiers_total": float(len(actual_qualifiers)),
+        "top_two_team_correct": float(top_two_team_correct),
+        "top_two_slot_correct": float(top_two_slot_correct),
+        "top_two_total": float(top_two_total),
+        "group_winners_correct": float(group_winners_correct),
+        "group_winners_total": float(len(winner_rows)),
+        "runner_ups_correct": float(runner_ups_correct),
+        "runner_ups_total": float(len(runner_up_rows)),
     }
     return comparison.sort_values(["group", "actual_position", "team"]), metrics
 
@@ -1730,15 +1761,27 @@ with match_tab:
 
 with group_tab:
     st.subheader("Group Position Probabilities")
-    if selected_label == "Pre-knockout" and group_accuracy_metrics:
+    if selected_label == "Pre-tournament" and group_accuracy_metrics:
         st.subheader("Pre-tournament vs Actual Group Stage")
-        metrics = st.columns(4)
+        st.caption(
+            "This evaluates the frozen pre-tournament forecast against the completed group stage and the actual "
+            "pre-knockout field. Top-2 exact slots matter because group winners and runner-ups feed fixed bracket slots."
+        )
+        metrics = st.columns(5)
         qualifiers_correct = int(group_accuracy_metrics["qualifiers_correct"])
         qualifiers_total = int(group_accuracy_metrics["qualifiers_total"])
+        top_two_team_correct = int(group_accuracy_metrics["top_two_team_correct"])
+        top_two_slot_correct = int(group_accuracy_metrics["top_two_slot_correct"])
+        top_two_total = int(group_accuracy_metrics["top_two_total"])
+        group_winners_correct = int(group_accuracy_metrics["group_winners_correct"])
+        group_winners_total = int(group_accuracy_metrics["group_winners_total"])
+        runner_ups_correct = int(group_accuracy_metrics["runner_ups_correct"])
+        runner_ups_total = int(group_accuracy_metrics["runner_ups_total"])
         metrics[0].metric("Knockout Teams Correct", f"{qualifiers_correct}/{qualifiers_total}")
-        metrics[1].metric("Exact Group Order", format_probability(group_accuracy_metrics["exact_position_accuracy"]))
-        metrics[2].metric("Group Winners", format_probability(group_accuracy_metrics["group_winner_accuracy"]))
-        metrics[3].metric("Runner-ups", format_probability(group_accuracy_metrics["runner_up_accuracy"]))
+        metrics[1].metric("Top-2 Teams Correct", f"{top_two_team_correct}/{top_two_total}")
+        metrics[2].metric("Top-2 Exact Slots", f"{top_two_slot_correct}/{top_two_total}")
+        metrics[3].metric("Group Winners", f"{group_winners_correct}/{group_winners_total}")
+        metrics[4].metric("Runner-ups", f"{runner_ups_correct}/{runner_ups_total}")
         if not group_accuracy_table.empty:
             with st.expander("Show pre-tournament group-stage comparison"):
                 st.dataframe(
@@ -1746,6 +1789,8 @@ with group_tab:
                     width="stretch",
                     column_config={
                         "position_correct": st.column_config.CheckboxColumn("position_correct"),
+                        "top_two_team_correct": st.column_config.CheckboxColumn("top_two_team_correct"),
+                        "top_two_slot_correct": st.column_config.CheckboxColumn("top_two_slot_correct"),
                     },
                 )
         if not actual_groups.empty:
