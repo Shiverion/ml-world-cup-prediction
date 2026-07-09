@@ -830,16 +830,31 @@ def group_accuracy_card(label: str, correct: int, total: int) -> str:
 
 def render_group_accuracy_cards(items: list[tuple[str, int, int]]) -> None:
     cards = "\n".join(group_accuracy_card(label, correct, total) for label, correct, total in items)
-    st.markdown(
+    components.html(
         f"""
         <style>
+          html,
+          body {{
+            margin: 0;
+            background: transparent;
+            font-family: "Source Sans Pro", Arial, sans-serif;
+          }}
+          * {{
+            box-sizing: border-box;
+          }}
           .group-accuracy-grid {{
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            display: flex;
+            flex-direction: row;
+            flex-wrap: nowrap;
             gap: 12px;
-            margin: 0.7rem 0 1rem;
+            margin: 0;
+            padding: 2px 2px 10px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            scrollbar-width: thin;
           }}
           .group-accuracy-card {{
+            flex: 0 0 190px;
             border: 1.5px solid;
             border-radius: 8px;
             padding: 12px 14px;
@@ -868,7 +883,8 @@ def render_group_accuracy_cards(items: list[tuple[str, int, int]]) -> None:
         </style>
         <div class="group-accuracy-grid">{cards}</div>
         """,
-        unsafe_allow_html=True,
+        height=142,
+        scrolling=False,
     )
 
 
