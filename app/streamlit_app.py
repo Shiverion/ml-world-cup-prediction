@@ -112,6 +112,14 @@ def actual_score_display(actual: dict[str, object] | pd.Series) -> str:
     return score
 
 
+def actual_status_lines(row: pd.Series | dict[str, object]) -> list[str]:
+    actual_winner = str(row.get("actual_winner", "") or "")
+    actual_score = str(row.get("actual_score", "") or "")
+    if actual_winner:
+        return [f"Winner: {actual_winner}", f"Score: {actual_score}"]
+    return ["Pending"]
+
+
 @st.cache_data(show_spinner=False)
 def load_tournament_context() -> dict[str, object]:
     data_config = read_yaml(data_config_path)
@@ -836,16 +844,14 @@ def match_card(row: pd.Series, left: float, top: float) -> str:
         "Ongoing": "is-ongoing",
         "No round snapshot": "is-missing",
     }.get(status, "")
-    actual_winner = str(row.get("actual_winner", "") or "")
-    actual_score = str(row.get("actual_score", "") or "")
     winner_label, winner_value, winner_probability = card_winner_display(row)
     winner = escape(winner_value)
     status_html = ""
     if status:
-        detail = f"{actual_winner} {actual_score}".strip() if actual_winner else "Pending"
+        detail_html = "".join(f"<strong>{escape(line)}</strong>" for line in actual_status_lines(row))
         status_html = (
             f'<div class="bracket-status {status_class}">'
-            f'<span>{escape(status)}</span><strong>{escape(detail)}</strong>'
+            f'<span>{escape(status)}</span>{detail_html}'
             "</div>"
         )
     return f"""
@@ -871,7 +877,7 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
     card_width = 202
     card_height = 132
     status_gap = 6
-    status_height = 42 if show_status else 0
+    status_height = 52 if show_status else 0
     match_block_height = card_height + (status_gap + status_height if show_status else 0)
     board_width = 2100
     board_height = 1620 if show_status else 1200
@@ -890,7 +896,7 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
         "right_r32": 1878,
     }
     base_y = 62
-    step_y = 188 if show_status else 146
+    step_y = 194 if show_status else 146
     positions: dict[int, tuple[float, float]] = {}
     for index, match_id in enumerate([73, 75, 74, 77, 83, 84, 81, 82]):
         positions[match_id] = (column_x["left_r32"], base_y + index * step_y)
@@ -1040,9 +1046,7 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
             "No round snapshot": "#ffffff",
         }.get(status, "#475569")
         winner_label, winner_value, winner_probability = card_winner_display(row)
-        actual_winner = str(row.get("actual_winner", "") or "")
-        actual_score = str(row.get("actual_score", "") or "")
-        status_detail = f"{actual_winner} {actual_score}".strip() if actual_winner else "Pending"
+        status_lines = actual_status_lines(row)
         team_a_probability = format_probability(row["team_a_probability"])
         team_b_probability = format_probability(row["team_b_probability"])
         team_a_slot_probability = f"Slot {team_a_probability}"
@@ -1053,8 +1057,11 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
         winner_label_y = top + 99
         winner_y = top + 116
         status_top = top + card_height + status_gap
-        status_y = status_top + 14
-        status_detail_y = status_top + 28
+        status_y = status_top + 13
+        status_detail_y = status_top + 30
+        status_score_y = status_top + 44
+        status_detail = status_lines[0]
+        status_score = status_lines[1] if len(status_lines) > 1 else ""
         return "\n".join(
             [
                 f'<rect x="{left:.1f}" y="{top:.1f}" width="{card_width}" height="{card_height}" rx="8" fill="#ffffff" stroke="{stroke}" stroke-width="1.5" />',
@@ -1070,6 +1077,7 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
                 f'<rect x="{left:.1f}" y="{status_top:.1f}" width="{card_width}" height="{status_height}" rx="7" fill="{status_fill}" stroke="{stroke}" stroke-width="1.5" />',
                 f'<text x="{left + card_width / 2:.1f}" y="{status_y:.1f}" text-anchor="middle" fill="{status_text_color}" class="svg-status">{escape(status)}</text>',
                 f'<text x="{left + card_width / 2:.1f}" y="{status_detail_y:.1f}" text-anchor="middle" fill="{status_text_color}" class="svg-status-detail">{escape(status_detail)}</text>',
+                f'<text x="{left + card_width / 2:.1f}" y="{status_score_y:.1f}" text-anchor="middle" fill="{status_text_color}" class="svg-status-detail">{escape(status_score)}</text>',
             ]
         )
 
@@ -1428,7 +1436,7 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
             flex-direction: column;
             justify-content: center;
             align-items: center;
-            gap: 2px;
+            gap: 1px;
             font-size: 0.66rem;
             line-height: 1.1;
             color: #475569;
@@ -1448,6 +1456,7 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
             text-overflow: ellipsis;
             white-space: nowrap;
             font-weight: 650;
+            font-size: 0.64rem;
           }}
           .bracket-status.is-success {{
             border-color: #16a34a;
