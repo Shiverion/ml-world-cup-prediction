@@ -3,7 +3,7 @@
 Forecast date: 2026-07-09
 Data cutoff: 2026-07-08T00:00:00
 Mode: live
-Git commit: 1b651930a0ba6ba7fd4b9259bd7764550980444e
+Git commit: ba5e93765ac6e5a11ae04d540ddcab7c2ad2e8dc
 Model: logistic_plain_c0_5
 Simulation predictor: ml_outcome
 Number of simulations: 3000
@@ -21,3 +21,4 @@ Calibration method: uncalibrated base probabilities; calibration diagnostics are
 - live_knockout_training_matches: 24
 - live_update_prior_strength: 80
 - live_update_max_live_weight: 0.35
+- anchor_snapshot_cutoff: 2026-06-28T00:00:00
