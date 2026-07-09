@@ -805,9 +805,71 @@ def format_probability_or_blank(value: object) -> str:
         return ""
 
 
-def format_count_rate(correct: int, total: int) -> str:
+def heatmap_color(rate: float) -> tuple[str, str, str]:
+    rate = max(0.0, min(1.0, float(rate)))
+    if rate >= 0.8:
+        return "#14532d", "#bbf7d0", "#dcfce7"
+    if rate >= 0.65:
+        return "#3f6212", "#d9f99d", "#f0fdf4"
+    if rate >= 0.5:
+        return "#854d0e", "#fde68a", "#fffbeb"
+    return "#7f1d1d", "#fecaca", "#fef2f2"
+
+
+def group_accuracy_card(label: str, correct: int, total: int) -> str:
     rate = correct / total if total else 0.0
-    return f"{correct}/{total} ({format_probability(rate)})"
+    background, accent, foreground = heatmap_color(rate)
+    return f"""
+      <div class="group-accuracy-card" style="background:{background}; border-color:{accent}; color:{foreground};">
+        <div class="group-accuracy-label">{escape(label)}</div>
+        <div class="group-accuracy-count">{correct}/{total}</div>
+        <div class="group-accuracy-rate">{format_probability(rate)}</div>
+      </div>
+    """
+
+
+def render_group_accuracy_cards(items: list[tuple[str, int, int]]) -> None:
+    cards = "\n".join(group_accuracy_card(label, correct, total) for label, correct, total in items)
+    st.markdown(
+        f"""
+        <style>
+          .group-accuracy-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 12px;
+            margin: 0.7rem 0 1rem;
+          }}
+          .group-accuracy-card {{
+            border: 1.5px solid;
+            border-radius: 8px;
+            padding: 12px 14px;
+            min-height: 112px;
+            box-shadow: 0 1px 5px rgba(15, 23, 42, 0.18);
+          }}
+          .group-accuracy-label {{
+            font-size: 0.78rem;
+            font-weight: 700;
+            line-height: 1.2;
+            min-height: 2.1em;
+            margin-bottom: 8px;
+          }}
+          .group-accuracy-count {{
+            font-size: 1.75rem;
+            font-weight: 750;
+            line-height: 1;
+            letter-spacing: 0;
+          }}
+          .group-accuracy-rate {{
+            margin-top: 7px;
+            font-size: 0.95rem;
+            font-weight: 700;
+            opacity: 0.92;
+          }}
+        </style>
+        <div class="group-accuracy-grid">{cards}</div>
+        """,
+        unsafe_allow_html=True,
+    )
 
 
 def card_winner_display(row: pd.Series | dict[str, object]) -> tuple[str, str, str]:
@@ -1772,7 +1834,6 @@ with group_tab:
             "This evaluates the frozen pre-tournament forecast against the completed group stage and the actual "
             "pre-knockout field. Top-2 exact slots matter because group winners and runner-ups feed fixed bracket slots."
         )
-        metrics = st.columns(5)
         qualifiers_correct = int(group_accuracy_metrics["qualifiers_correct"])
         qualifiers_total = int(group_accuracy_metrics["qualifiers_total"])
         top_two_team_correct = int(group_accuracy_metrics["top_two_team_correct"])
@@ -1782,11 +1843,15 @@ with group_tab:
         group_winners_total = int(group_accuracy_metrics["group_winners_total"])
         runner_ups_correct = int(group_accuracy_metrics["runner_ups_correct"])
         runner_ups_total = int(group_accuracy_metrics["runner_ups_total"])
-        metrics[0].metric("Knockout Teams Correct", format_count_rate(qualifiers_correct, qualifiers_total))
-        metrics[1].metric("Top-2 Teams Correct", format_count_rate(top_two_team_correct, top_two_total))
-        metrics[2].metric("Top-2 Exact Slots", format_count_rate(top_two_slot_correct, top_two_total))
-        metrics[3].metric("Group Winners", format_count_rate(group_winners_correct, group_winners_total))
-        metrics[4].metric("Runner-ups", format_count_rate(runner_ups_correct, runner_ups_total))
+        render_group_accuracy_cards(
+            [
+                ("Knockout Teams Correct", qualifiers_correct, qualifiers_total),
+                ("Top-2 Teams Correct", top_two_team_correct, top_two_total),
+                ("Top-2 Exact Slots", top_two_slot_correct, top_two_total),
+                ("Group Winners", group_winners_correct, group_winners_total),
+                ("Runner-ups", runner_ups_correct, runner_ups_total),
+            ]
+        )
         if not group_accuracy_table.empty:
             with st.expander("Show pre-tournament group-stage comparison"):
                 st.dataframe(
