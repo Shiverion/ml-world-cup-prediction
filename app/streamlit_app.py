@@ -268,7 +268,7 @@ def bracket_prediction_status(
         if prediction is None:
             prediction = row if actual is None else {}
         predicted_winner = str(prediction.get("winner_top", ""))
-        predicted_probability = prediction.get("winner_probability", "")
+        predicted_probability = prediction.get("winner_match_probability", prediction.get("winner_probability", ""))
         if actual is None:
             status = "Ongoing"
             actual_winner = ""
@@ -286,6 +286,7 @@ def bracket_prediction_status(
                 **row,
                 "prediction_winner_top": predicted_winner,
                 "prediction_winner_probability": predicted_probability,
+                "prediction_winner_match_probability": prediction.get("winner_match_probability", ""),
                 "prediction_team_a_top": prediction.get("team_a_top", ""),
                 "prediction_team_b_top": prediction.get("team_b_top", ""),
                 "prediction_snapshot": snapshot_labels_by_round.get(round_key, ""),
@@ -502,7 +503,9 @@ def round_by_round_accuracy(
                 if prediction is None:
                     continue
                 predicted_winner = str(prediction.get("winner_top", ""))
-                confidence = float(prediction.get("winner_probability", 0.0) or 0.0)
+                confidence = float(
+                    prediction.get("winner_match_probability", prediction.get("winner_probability", 0.0)) or 0.0
+                )
                 is_correct = predicted_winner == str(actual.get("winner", ""))
                 correct += int(is_correct)
                 evaluated += 1
@@ -783,11 +786,16 @@ def card_winner_display(row: pd.Series | dict[str, object]) -> tuple[str, str, s
         if display_prediction
         else get_value("winner_top", "")
     )
-    winner_probability_value = (
-        get_value("prediction_winner_probability", get_value("winner_probability", ""))
-        if display_prediction
-        else get_value("winner_probability", "")
-    )
+    if display_prediction:
+        winner_probability_value = get_value(
+            "prediction_winner_match_probability",
+            get_value(
+                "prediction_winner_probability",
+                get_value("winner_match_probability", get_value("winner_probability", "")),
+            ),
+        )
+    else:
+        winner_probability_value = get_value("winner_match_probability", get_value("winner_probability", ""))
     return winner_label, str(winner_value), format_probability_or_blank(winner_probability_value)
 
 

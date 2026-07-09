@@ -259,6 +259,7 @@ def test_completed_knockout_match_winner_is_locked_into_later_rounds():
     bracket = details["knockout_bracket"].set_index("match")
     teams = details["team_probabilities"].set_index("team")
     assert bracket.loc[73, "winner_top"] == "B2"
+    assert bracket.loc[73, "winner_match_probability"] == pytest.approx(1.0)
     assert bracket.loc[89, "team_a_top"] == "B2"
     assert teams.loc["B2", "reach_r16"] == pytest.approx(1.0)
     assert teams.loc["A1", "reach_r16"] == pytest.approx(0.0)

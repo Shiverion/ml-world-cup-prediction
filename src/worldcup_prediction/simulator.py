@@ -574,6 +574,7 @@ def _simulate_configured_knockout(
                 bracket_counts[key]["team_b"][team_b] += 1
                 bracket_counts[key]["appearance"][team_a] += 1
                 bracket_counts[key]["appearance"][team_b] += 1
+                bracket_counts[key]["matchup"][(team_a, team_b)] += 1
             if completed_match:
                 winner = str(completed_match["winner"])
             else:
@@ -589,6 +590,7 @@ def _simulate_configured_knockout(
                 counts[winner][milestone] += 1
             if bracket_counts is not None:
                 bracket_counts[(round_key, match_id)]["winner"][winner] += 1
+                bracket_counts[(round_key, match_id)]["matchup_winner"][(team_a, team_b, winner)] += 1
 
 
 def _probability_rows(counts: Mapping[str, Mapping[str, int]], n_simulations: int) -> pd.DataFrame:
@@ -639,6 +641,14 @@ def _bracket_rows(
         team_a, team_a_probability = _top_counter_value(counters["team_a"], n_simulations)
         team_b, team_b_probability = _top_counter_value(counters["team_b"], n_simulations)
         winner, winner_probability = _top_counter_value(counters["winner"], n_simulations)
+        matchup_count = counters["matchup"].get((team_a, team_b), 0) if team_a and team_b else 0
+        matchup_probability = matchup_count / n_simulations if matchup_count else 0.0
+        winner_match_count = (
+            counters["matchup_winner"].get((team_a, team_b, winner), 0)
+            if team_a and team_b and winner
+            else 0
+        )
+        winner_match_probability = winner_match_count / matchup_count if matchup_count else winner_probability
         rows.append(
             {
                 "round": round_name,
@@ -647,8 +657,10 @@ def _bracket_rows(
                 "team_a_probability": team_a_probability,
                 "team_b_top": team_b,
                 "team_b_probability": team_b_probability,
+                "matchup_probability": matchup_probability,
                 "winner_top": winner,
                 "winner_probability": winner_probability,
+                "winner_match_probability": winner_match_probability,
             }
         )
     return pd.DataFrame(rows)
@@ -684,6 +696,8 @@ def simulate_tournament_detailed(
             "team_b": Counter(),
             "appearance": Counter(),
             "winner": Counter(),
+            "matchup": Counter(),
+            "matchup_winner": Counter(),
         }
     )
 
