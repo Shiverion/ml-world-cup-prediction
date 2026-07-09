@@ -1,7 +1,7 @@
-forecast_date: '2026-07-08'
+forecast_date: '2026-07-09'
 mode: reconstructed_live
 data_cutoff: '2026-07-04T00:00:00'
-git_commit: 64b95722b949d5667f64357b9380e25f833756d8
+git_commit: 1b651930a0ba6ba7fd4b9259bd7764550980444e
 model: logistic_plain_c0_5
 simulation_predictor: ml_outcome
 simulation_count: 3000

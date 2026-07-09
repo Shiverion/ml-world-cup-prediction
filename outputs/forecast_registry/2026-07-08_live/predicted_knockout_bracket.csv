@@ -1,32 +1,32 @@
-round,match,team_a_top,team_a_probability,team_b_top,team_b_probability,winner_top,winner_probability
-round_of_32,73,South Africa,1.0,Canada,1.0,Canada,1.0
-round_of_32,74,Germany,1.0,Paraguay,1.0,Paraguay,1.0
-round_of_32,75,Netherlands,1.0,Morocco,1.0,Morocco,1.0
-round_of_32,76,Brazil,1.0,Japan,1.0,Brazil,1.0
-round_of_32,77,France,1.0,Sweden,1.0,France,1.0
-round_of_32,78,Ivory Coast,1.0,Norway,1.0,Norway,1.0
-round_of_32,79,Mexico,1.0,Ecuador,1.0,Mexico,1.0
-round_of_32,80,England,1.0,DR Congo,1.0,England,1.0
-round_of_32,81,United States,1.0,Bosnia and Herzegovina,1.0,United States,1.0
-round_of_32,82,Belgium,1.0,Senegal,1.0,Belgium,1.0
-round_of_32,83,Portugal,1.0,Croatia,1.0,Portugal,1.0
-round_of_32,84,Spain,1.0,Austria,1.0,Spain,1.0
-round_of_32,85,Switzerland,1.0,Algeria,1.0,Switzerland,1.0
-round_of_32,86,Argentina,1.0,Cape Verde,1.0,Argentina,1.0
-round_of_32,87,Colombia,1.0,Ghana,1.0,Colombia,1.0
-round_of_32,88,Australia,1.0,Egypt,1.0,Egypt,1.0
-round_of_16,89,Canada,1.0,Morocco,1.0,Morocco,1.0
-round_of_16,90,Paraguay,1.0,France,1.0,France,1.0
-round_of_16,91,Brazil,1.0,Norway,1.0,Norway,1.0
-round_of_16,92,Mexico,1.0,England,1.0,England,1.0
-round_of_16,93,Portugal,1.0,Spain,1.0,Spain,1.0
-round_of_16,94,United States,1.0,Belgium,1.0,Belgium,1.0
-round_of_16,95,Argentina,1.0,Egypt,1.0,Argentina,1.0
-round_of_16,96,Switzerland,1.0,Colombia,1.0,Switzerland,1.0
-quarterfinals,97,Morocco,1.0,France,1.0,France,0.613
-quarterfinals,98,Spain,1.0,Belgium,1.0,Spain,0.691
-quarterfinals,99,Norway,1.0,England,1.0,England,0.6126666666666667
-quarterfinals,100,Argentina,1.0,Switzerland,1.0,Argentina,0.6563333333333333
-semifinals,101,France,0.613,Spain,0.691,Spain,0.4246666666666667
-semifinals,102,England,0.6126666666666667,Argentina,0.6563333333333333,Argentina,0.4236666666666667
-final,104,Spain,0.4246666666666667,Argentina,0.4236666666666667,Spain,0.2683333333333333
+round,match,team_a_top,team_a_probability,team_b_top,team_b_probability,matchup_probability,winner_top,winner_probability,winner_match_probability
+round_of_32,73,South Africa,1.0,Canada,1.0,1.0,Canada,1.0,1.0
+round_of_32,74,Germany,1.0,Paraguay,1.0,1.0,Paraguay,1.0,1.0
+round_of_32,75,Netherlands,1.0,Morocco,1.0,1.0,Morocco,1.0,1.0
+round_of_32,76,Brazil,1.0,Japan,1.0,1.0,Brazil,1.0,1.0
+round_of_32,77,France,1.0,Sweden,1.0,1.0,France,1.0,1.0
+round_of_32,78,Ivory Coast,1.0,Norway,1.0,1.0,Norway,1.0,1.0
+round_of_32,79,Mexico,1.0,Ecuador,1.0,1.0,Mexico,1.0,1.0
+round_of_32,80,England,1.0,DR Congo,1.0,1.0,England,1.0,1.0
+round_of_32,81,United States,1.0,Bosnia and Herzegovina,1.0,1.0,United States,1.0,1.0
+round_of_32,82,Belgium,1.0,Senegal,1.0,1.0,Belgium,1.0,1.0
+round_of_32,83,Portugal,1.0,Croatia,1.0,1.0,Portugal,1.0,1.0
+round_of_32,84,Spain,1.0,Austria,1.0,1.0,Spain,1.0,1.0
+round_of_32,85,Switzerland,1.0,Algeria,1.0,1.0,Switzerland,1.0,1.0
+round_of_32,86,Argentina,1.0,Cape Verde,1.0,1.0,Argentina,1.0,1.0
+round_of_32,87,Colombia,1.0,Ghana,1.0,1.0,Colombia,1.0,1.0
+round_of_32,88,Australia,1.0,Egypt,1.0,1.0,Egypt,1.0,1.0
+round_of_16,89,Paraguay,1.0,France,1.0,1.0,France,1.0,1.0
+round_of_16,90,Canada,1.0,Morocco,1.0,1.0,Morocco,1.0,1.0
+round_of_16,91,Brazil,1.0,Norway,1.0,1.0,Norway,1.0,1.0
+round_of_16,92,Mexico,1.0,England,1.0,1.0,England,1.0,1.0
+round_of_16,93,Portugal,1.0,Spain,1.0,1.0,Spain,1.0,1.0
+round_of_16,94,United States,1.0,Belgium,1.0,1.0,Belgium,1.0,1.0
+round_of_16,95,Argentina,1.0,Egypt,1.0,1.0,Argentina,1.0,1.0
+round_of_16,96,Switzerland,1.0,Colombia,1.0,1.0,Switzerland,1.0,1.0
+quarterfinals,97,France,1.0,Morocco,1.0,1.0,France,0.594,0.594
+quarterfinals,98,Spain,1.0,Belgium,1.0,1.0,Spain,0.67,0.67
+quarterfinals,99,Norway,1.0,England,1.0,1.0,England,0.6056666666666667,0.6056666666666667
+quarterfinals,100,Argentina,1.0,Switzerland,1.0,1.0,Argentina,0.6983333333333334,0.6983333333333334
+semifinals,101,France,0.594,Spain,0.67,0.396,Spain,0.4113333333333333,0.5707070707070707
+semifinals,102,England,0.6056666666666667,Argentina,0.6983333333333334,0.421,Argentina,0.4726666666666667,0.6310372129849564
+final,104,Spain,0.4113333333333333,Argentina,0.4726666666666667,0.189,Spain,0.252,0.5291005291005291
