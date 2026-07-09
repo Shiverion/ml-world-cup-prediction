@@ -805,6 +805,11 @@ def format_probability_or_blank(value: object) -> str:
         return ""
 
 
+def format_count_rate(correct: int, total: int) -> str:
+    rate = correct / total if total else 0.0
+    return f"{correct}/{total} ({format_probability(rate)})"
+
+
 def card_winner_display(row: pd.Series | dict[str, object]) -> tuple[str, str, str]:
     get_value = row.get if isinstance(row, dict) else row.get
     actual_winner = str(get_value("actual_winner", "") or "")
@@ -1761,7 +1766,7 @@ with match_tab:
 
 with group_tab:
     st.subheader("Group Position Probabilities")
-    if selected_label == "Pre-tournament" and group_accuracy_metrics:
+    if group_accuracy_metrics:
         st.subheader("Pre-tournament vs Actual Group Stage")
         st.caption(
             "This evaluates the frozen pre-tournament forecast against the completed group stage and the actual "
@@ -1777,11 +1782,11 @@ with group_tab:
         group_winners_total = int(group_accuracy_metrics["group_winners_total"])
         runner_ups_correct = int(group_accuracy_metrics["runner_ups_correct"])
         runner_ups_total = int(group_accuracy_metrics["runner_ups_total"])
-        metrics[0].metric("Knockout Teams Correct", f"{qualifiers_correct}/{qualifiers_total}")
-        metrics[1].metric("Top-2 Teams Correct", f"{top_two_team_correct}/{top_two_total}")
-        metrics[2].metric("Top-2 Exact Slots", f"{top_two_slot_correct}/{top_two_total}")
-        metrics[3].metric("Group Winners", f"{group_winners_correct}/{group_winners_total}")
-        metrics[4].metric("Runner-ups", f"{runner_ups_correct}/{runner_ups_total}")
+        metrics[0].metric("Knockout Teams Correct", format_count_rate(qualifiers_correct, qualifiers_total))
+        metrics[1].metric("Top-2 Teams Correct", format_count_rate(top_two_team_correct, top_two_total))
+        metrics[2].metric("Top-2 Exact Slots", format_count_rate(top_two_slot_correct, top_two_total))
+        metrics[3].metric("Group Winners", format_count_rate(group_winners_correct, group_winners_total))
+        metrics[4].metric("Runner-ups", format_count_rate(runner_ups_correct, runner_ups_total))
         if not group_accuracy_table.empty:
             with st.expander("Show pre-tournament group-stage comparison"):
                 st.dataframe(
