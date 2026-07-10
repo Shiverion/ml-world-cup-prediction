@@ -133,8 +133,8 @@ knockout_bracket:
         - {group: D, position: 2}
         - {group: G, position: 2}
   round_of_16:
-    - {match: 89, winners_of: [73, 75]}
-    - {match: 90, winners_of: [74, 77]}
+    - {match: 89, winners_of: [74, 77]}
+    - {match: 90, winners_of: [73, 75]}
     - {match: 91, winners_of: [76, 78]}
     - {match: 92, winners_of: [79, 80]}
     - {match: 93, winners_of: [83, 84]}

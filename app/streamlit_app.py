@@ -92,6 +92,54 @@ def numeric_frame(frame: pd.DataFrame, skip_columns: set[str] | None = None) -> 
     return output
 
 
+def row_value(row: pd.Series | dict[str, object], *columns: str) -> object:
+    getter = row.get if isinstance(row, dict) else row.get
+    for column in columns:
+        value = getter(column, "")
+        if value is not None and not pd.isna(value) and str(value).strip():
+            return value
+    return ""
+
+
+def matchup_key(row: pd.Series | dict[str, object]) -> frozenset[str] | None:
+    team_a = str(row_value(row, "team_a_top", "team_a")).strip()
+    team_b = str(row_value(row, "team_b_top", "team_b")).strip()
+    if not team_a or not team_b:
+        return None
+    return frozenset((team_a, team_b))
+
+
+def prediction_lookup_for_round(bracket: pd.DataFrame) -> tuple[dict[int, pd.Series], dict[frozenset[str], pd.Series]]:
+    by_match: dict[int, pd.Series] = {}
+    by_matchup: dict[frozenset[str], pd.Series] = {}
+    for _, row in bracket.iterrows():
+        try:
+            by_match[int(row["match"])] = row
+        except (KeyError, TypeError, ValueError):
+            pass
+        key = matchup_key(row)
+        if key is not None:
+            by_matchup[key] = row
+    return by_match, by_matchup
+
+
+def matching_prediction(
+    row: pd.Series | dict[str, object],
+    prediction_by_match: dict[int, pd.Series],
+    prediction_by_matchup: dict[frozenset[str], pd.Series] | None = None,
+) -> pd.Series | None:
+    try:
+        prediction = prediction_by_match.get(int(row_value(row, "match")))
+    except (TypeError, ValueError):
+        prediction = None
+    row_matchup = matchup_key(row)
+    if prediction is not None and (row_matchup is None or matchup_key(prediction) == row_matchup):
+        return prediction
+    if row_matchup is not None and prediction_by_matchup is not None:
+        return prediction_by_matchup.get(row_matchup)
+    return None
+
+
 def probability_column_config(columns: list[str]) -> dict[str, st.column_config.NumberColumn]:
     return {
         column: st.column_config.NumberColumn(column, format="%.2f")
@@ -286,13 +334,14 @@ def bracket_prediction_status(
     if bracket.empty:
         return bracket
     actual_by_match = {int(match["match"]): match for match in completed_knockout_matches}
-    prediction_by_match = (
-        {int(row["match"]): row for _, row in prediction_bracket.iterrows()}
+    prediction_by_match, prediction_by_matchup = (
+        prediction_lookup_for_round(prediction_bracket)
         if prediction_bracket is not None and not prediction_bracket.empty
-        else {}
+        else ({}, {})
     )
     prediction_brackets_by_round = prediction_brackets_by_round or {}
     snapshot_labels_by_round = snapshot_labels_by_round or {}
+    round_prediction_lookups: dict[str, tuple[dict[int, pd.Series], dict[frozenset[str], pd.Series]]] = {}
     rows: list[dict[str, object]] = []
     for row in bracket.to_dict("records"):
         match_id = int(row["match"])
@@ -300,10 +349,12 @@ def bracket_prediction_status(
         actual = actual_by_match.get(match_id)
         round_prediction = prediction_brackets_by_round.get(round_key)
         if round_prediction is not None and not round_prediction.empty:
-            round_prediction_by_match = {int(item["match"]): item for _, item in round_prediction.iterrows()}
-            prediction = round_prediction_by_match.get(match_id)
+            if round_key not in round_prediction_lookups:
+                round_prediction_lookups[round_key] = prediction_lookup_for_round(round_prediction)
+            round_prediction_by_match, round_prediction_by_matchup = round_prediction_lookups[round_key]
+            prediction = matching_prediction(row, round_prediction_by_match, round_prediction_by_matchup)
         else:
-            prediction = prediction_by_match.get(match_id) if not prediction_brackets_by_round else None
+            prediction = matching_prediction(row, prediction_by_match, prediction_by_matchup) if not prediction_brackets_by_round else None
         if prediction is None:
             prediction = row if actual is None else {}
         predicted_winner = str(prediction.get("winner_top", ""))
@@ -534,11 +585,11 @@ def round_by_round_accuracy(
         else:
             snapshot_label = forecast_snapshot_label(snapshot)
             bracket = numeric_frame(pd.read_csv(snapshot["bracket_path"]), {"round", "team_a_top", "team_b_top", "winner_top"})
-            prediction_by_match = {int(row["match"]): row for _, row in bracket.iterrows()}
+            prediction_by_match, prediction_by_matchup = prediction_lookup_for_round(bracket)
             confidences: list[float] = []
             brier_values: list[float] = []
             for actual in actual_matches:
-                prediction = prediction_by_match.get(int(actual["match"]))
+                prediction = matching_prediction(actual, prediction_by_match, prediction_by_matchup)
                 if prediction is None:
                     continue
                 predicted_winner = str(prediction.get("winner_top", ""))
@@ -625,9 +676,9 @@ def round_by_round_live_sync(
         if snapshot is not None:
             snapshot_label = forecast_snapshot_label(snapshot)
             bracket = numeric_frame(pd.read_csv(snapshot["bracket_path"]), {"round", "team_a_top", "team_b_top", "winner_top"})
-            prediction_by_match = {int(row["match"]): row for _, row in bracket.iterrows()}
+            prediction_by_match, prediction_by_matchup = prediction_lookup_for_round(bracket)
             for actual in actual_matches:
-                prediction = prediction_by_match.get(int(actual["match"]))
+                prediction = matching_prediction(actual, prediction_by_match, prediction_by_matchup)
                 if prediction is None:
                     continue
                 checked += 1
