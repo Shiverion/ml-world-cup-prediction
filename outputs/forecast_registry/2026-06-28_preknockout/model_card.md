@@ -1,9 +1,9 @@
 # Forecast Card
 
-Forecast date: 2026-07-08
+Forecast date: 2026-07-10
 Data cutoff: 2026-06-28T00:00:00
 Mode: pre_knockout
-Git commit: 3a770103e6da3e6535ab6e76904cc04fa1523bed
+Git commit: 0ffe7353a1bb9868b03fc2334086645b48581d9f
 Model: logistic_plain_c0_5
 Simulation predictor: ml_outcome
 Number of simulations: 3000
