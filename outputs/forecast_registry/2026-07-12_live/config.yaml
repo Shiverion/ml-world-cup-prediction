@@ -1,0 +1,37 @@
+forecast_date: '2026-07-12'
+mode: live
+data_cutoff: '2026-07-12T00:00:00'
+git_commit: 1902466bc9ceed2d9b1bc8aa8f44fecd1c6d4db1
+model: logistic_plain_c0_5
+simulation_predictor: ml_outcome
+simulation_count: 3000
+feature_columns:
+- elo_diff
+- elo_abs_diff
+- elo_expected_a
+- fifa_rank_diff
+- fifa_points_diff
+- form_points_diff_5
+- form_points_diff_10
+- goal_diff_form_10
+- is_neutral
+- team_a_home_advantage
+- is_friendly
+- is_qualifier
+- is_world_cup
+- is_world_cup_group
+- is_world_cup_knockout
+- rest_days_diff
+outputs:
+  simulation: outputs/simulations/team_probabilities_2026_live.csv
+  group_positions: outputs/simulations/group_position_probabilities_2026_live.csv
+  knockout_bracket: outputs/simulations/predicted_knockout_bracket_2026_live.csv
+  simulation_interval: outputs/simulations/team_probabilities_2026_live_with_ci.csv
+metadata:
+  anchored_live_update: true
+  anchor_model_weight: 0.7407
+  live_model_weight: 0.2593
+  live_knockout_training_matches: 28
+  live_update_prior_strength: 80
+  live_update_max_live_weight: 0.35
+  anchor_snapshot_cutoff: '2026-06-28T00:00:00'
