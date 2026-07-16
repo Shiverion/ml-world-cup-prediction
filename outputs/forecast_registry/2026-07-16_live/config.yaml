@@ -1,10 +1,10 @@
-forecast_date: '2026-07-15'
+forecast_date: '2026-07-16'
 mode: live
 data_cutoff: '2026-07-16T00:00:00'
-git_commit: 7b2ee6780ae99185f4720ecb32e960eefe0610d0
+git_commit: 7cb8aaa058720a3b847102fe2d77c3bb11838c8a
 model: logistic_plain_c0_5
 simulation_predictor: ml_outcome
-simulation_count: 3000
+simulation_count: 150000
 feature_columns:
 - elo_diff
 - elo_abs_diff
@@ -26,6 +26,7 @@ outputs:
   simulation: outputs/simulations/team_probabilities_2026_live.csv
   group_positions: outputs/simulations/group_position_probabilities_2026_live.csv
   knockout_bracket: outputs/simulations/predicted_knockout_bracket_2026_live.csv
+  knockout_comparison: outputs/simulations/knockout_model_vs_monte_carlo_2026_live.csv
   simulation_interval: outputs/simulations/team_probabilities_2026_live_with_ci.csv
 metadata:
   anchored_live_update: true
@@ -35,3 +36,4 @@ metadata:
   live_update_prior_strength: 80
   live_update_max_live_weight: 0.35
   anchor_snapshot_cutoff: '2026-06-28T00:00:00'
+  simulation_profile: publication

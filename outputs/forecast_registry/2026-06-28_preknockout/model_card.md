@@ -1,9 +1,9 @@
 # Forecast Card
 
-Forecast date: 2026-07-10
+Forecast date: 2026-07-16
 Data cutoff: 2026-06-28T00:00:00
 Mode: pre_knockout
-Git commit: 0ffe7353a1bb9868b03fc2334086645b48581d9f
+Git commit: 7cb8aaa058720a3b847102fe2d77c3bb11838c8a
 Model: logistic_plain_c0_5
 Simulation predictor: ml_outcome
 Number of simulations: 3000
@@ -12,3 +12,7 @@ Calibration method: uncalibrated base probabilities; calibration diagnostics are
 ## Known Missing Data
 
 - No squad, injury, lineup, weather, travel, or odds features.
+
+## Metadata
+
+- simulation_profile: dev

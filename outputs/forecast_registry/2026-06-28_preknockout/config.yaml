@@ -1,7 +1,7 @@
-forecast_date: '2026-07-10'
+forecast_date: '2026-07-16'
 mode: pre_knockout
 data_cutoff: '2026-06-28T00:00:00'
-git_commit: 0ffe7353a1bb9868b03fc2334086645b48581d9f
+git_commit: 7cb8aaa058720a3b847102fe2d77c3bb11838c8a
 model: logistic_plain_c0_5
 simulation_predictor: ml_outcome
 simulation_count: 3000
@@ -26,4 +26,7 @@ outputs:
   simulation: outputs/simulations/team_probabilities_2026_pre_knockout.csv
   group_positions: outputs/simulations/group_position_probabilities_2026_pre_knockout.csv
   knockout_bracket: outputs/simulations/predicted_knockout_bracket_2026_pre_knockout.csv
+  knockout_comparison: outputs/simulations/knockout_model_vs_monte_carlo_2026_pre_knockout.csv
   simulation_interval: outputs/simulations/team_probabilities_2026_pre_knockout_with_ci.csv
+metadata:
+  simulation_profile: dev
