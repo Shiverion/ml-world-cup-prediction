@@ -1,0 +1,91 @@
+year,date,round,round_key,team_a,team_b,team_a_score,team_b_score,team_a_score_ft,team_b_score_ft,team_a_score_et,team_b_score_et,team_a_penalties,team_b_penalties,winner,winner_method,source_url
+2002,2002-06-15,Round of 16,round_of_16,Denmark,England,0,3,0,3,,,,,England,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-15,Round of 16,round_of_16,Germany,Paraguay,1,0,1,0,,,,,Germany,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-16,Round of 16,round_of_16,Spain,Ireland,1,1,1,1,1.0,1.0,3.0,2.0,Spain,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-16,Round of 16,round_of_16,Sweden,Senegal,1,2,1,1,1.0,2.0,,,Senegal,extra_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-17,Round of 16,round_of_16,Brazil,Belgium,2,0,2,0,,,,,Brazil,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-17,Round of 16,round_of_16,Mexico,USA,0,2,0,2,,,,,USA,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-18,Round of 16,round_of_16,Japan,Turkey,0,1,0,1,,,,,Turkey,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-18,Round of 16,round_of_16,South Korea,Italy,2,1,1,1,2.0,1.0,,,South Korea,extra_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-21,Quarter-finals,quarterfinals,England,Brazil,1,2,1,2,,,,,Brazil,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-21,Quarter-finals,quarterfinals,Germany,USA,1,0,1,0,,,,,Germany,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-22,Quarter-finals,quarterfinals,Senegal,Turkey,0,1,0,0,0.0,1.0,,,Turkey,extra_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-22,Quarter-finals,quarterfinals,Spain,South Korea,0,0,0,0,0.0,0.0,3.0,5.0,South Korea,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-25,Semi-finals,semifinals,Germany,South Korea,1,0,1,0,,,,,Germany,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-26,Semi-finals,semifinals,Brazil,Turkey,1,0,1,0,,,,,Brazil,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2002,2002-06-30,Final,final,Germany,Brazil,0,2,0,2,,,,,Brazil,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2002/worldcup.json
+2006,2006-06-24,Round of 16,round_of_16,Argentina,Mexico,2,1,1,1,2.0,1.0,,,Argentina,extra_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-06-24,Round of 16,round_of_16,Germany,Sweden,2,0,2,0,,,,,Germany,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-06-25,Round of 16,round_of_16,England,Ecuador,1,0,1,0,,,,,England,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-06-25,Round of 16,round_of_16,Portugal,Netherlands,1,0,1,0,,,,,Portugal,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-06-26,Round of 16,round_of_16,Italy,Australia,1,0,1,0,,,,,Italy,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-06-26,Round of 16,round_of_16,Switzerland,Ukraine,0,0,0,0,0.0,0.0,0.0,3.0,Ukraine,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-06-27,Round of 16,round_of_16,Brazil,Ghana,3,0,3,0,,,,,Brazil,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-06-27,Round of 16,round_of_16,Spain,France,1,3,1,3,,,,,France,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-06-30,Quarterfinals,quarterfinals,Germany,Argentina,1,1,1,1,1.0,1.0,4.0,2.0,Germany,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-06-30,Quarterfinals,quarterfinals,Italy,Ukraine,3,0,3,0,,,,,Italy,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-07-01,Quarterfinals,quarterfinals,Brazil,France,0,1,0,1,,,,,France,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-07-01,Quarterfinals,quarterfinals,England,Portugal,0,0,0,0,0.0,0.0,1.0,3.0,Portugal,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-07-04,Semifinals,semifinals,Germany,Italy,0,2,0,0,0.0,2.0,,,Italy,extra_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-07-05,Semifinals,semifinals,Portugal,France,0,1,0,1,,,,,France,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2006,2006-07-09,Final,final,Italy,France,1,1,1,1,1.0,1.0,5.0,3.0,Italy,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2006/worldcup.json
+2010,2010-06-26,Round of 16,round_of_16,USA,Ghana,1,2,1,1,1.0,2.0,,,Ghana,extra_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-06-26,Round of 16,round_of_16,Uruguay,South Korea,2,1,2,1,,,,,Uruguay,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-06-27,Round of 16,round_of_16,Argentina,Mexico,3,1,3,1,,,,,Argentina,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-06-27,Round of 16,round_of_16,Germany,England,4,1,4,1,,,,,Germany,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-06-28,Round of 16,round_of_16,Brazil,Chile,3,0,3,0,,,,,Brazil,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-06-28,Round of 16,round_of_16,Netherlands,Slovakia,2,1,2,1,,,,,Netherlands,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-06-29,Round of 16,round_of_16,Paraguay,Japan,0,0,0,0,0.0,0.0,5.0,3.0,Paraguay,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-06-29,Round of 16,round_of_16,Spain,Portugal,1,0,1,0,,,,,Spain,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-07-02,Quarterfinals,quarterfinals,Netherlands,Brazil,2,1,2,1,,,,,Netherlands,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-07-02,Quarterfinals,quarterfinals,Uruguay,Ghana,1,1,1,1,1.0,1.0,4.0,2.0,Uruguay,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-07-03,Quarterfinals,quarterfinals,Argentina,Germany,0,4,0,4,,,,,Germany,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-07-03,Quarterfinals,quarterfinals,Paraguay,Spain,0,1,0,1,,,,,Spain,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-07-06,Semifinals,semifinals,Uruguay,Netherlands,2,3,2,3,,,,,Netherlands,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-07-07,Semifinals,semifinals,Germany,Spain,0,1,0,1,,,,,Spain,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2010,2010-07-11,Final,final,Netherlands,Spain,0,1,0,0,0.0,1.0,,,Spain,extra_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2010/worldcup.json
+2014,2014-06-28,Round of 16,round_of_16,Brazil,Chile,1,1,1,1,1.0,1.0,3.0,2.0,Brazil,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-06-28,Round of 16,round_of_16,Colombia,Uruguay,2,0,2,0,,,,,Colombia,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-06-29,Round of 16,round_of_16,Costa Rica,Greece,1,1,1,1,1.0,1.0,5.0,3.0,Costa Rica,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-06-29,Round of 16,round_of_16,Netherlands,Mexico,2,1,2,1,,,,,Netherlands,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-06-30,Round of 16,round_of_16,France,Nigeria,2,0,2,0,,,,,France,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-06-30,Round of 16,round_of_16,Germany,Algeria,2,1,0,0,2.0,1.0,,,Germany,extra_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-07-01,Round of 16,round_of_16,Argentina,Switzerland,1,0,0,0,1.0,0.0,,,Argentina,extra_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-07-01,Round of 16,round_of_16,Belgium,USA,2,1,0,0,2.0,1.0,,,Belgium,extra_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-07-04,Quarter-finals,quarterfinals,Brazil,Colombia,2,1,2,1,,,,,Brazil,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-07-04,Quarter-finals,quarterfinals,France,Germany,0,1,0,1,,,,,Germany,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-07-05,Quarter-finals,quarterfinals,Argentina,Belgium,1,0,1,0,,,,,Argentina,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-07-05,Quarter-finals,quarterfinals,Netherlands,Costa Rica,0,0,0,0,0.0,0.0,4.0,3.0,Netherlands,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-07-08,Semi-finals,semifinals,Brazil,Germany,1,7,1,7,,,,,Germany,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-07-09,Semi-finals,semifinals,Netherlands,Argentina,0,0,0,0,0.0,0.0,2.0,4.0,Argentina,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2014,2014-07-13,Final,final,Germany,Argentina,1,0,0,0,1.0,0.0,,,Germany,extra_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2014/worldcup.json
+2018,2018-06-30,Round of 16,round_of_16,France,Argentina,4,3,4,3,,,,,France,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-06-30,Round of 16,round_of_16,Uruguay,Portugal,2,1,2,1,,,,,Uruguay,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-01,Round of 16,round_of_16,Croatia,Denmark,1,1,1,1,1.0,1.0,3.0,2.0,Croatia,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-01,Round of 16,round_of_16,Spain,Russia,1,1,1,1,1.0,1.0,3.0,4.0,Russia,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-02,Round of 16,round_of_16,Belgium,Japan,3,2,3,2,,,,,Belgium,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-02,Round of 16,round_of_16,Brazil,Mexico,2,0,2,0,,,,,Brazil,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-03,Round of 16,round_of_16,Colombia,England,1,1,1,1,1.0,1.0,3.0,4.0,England,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-03,Round of 16,round_of_16,Sweden,Switzerland,1,0,1,0,,,,,Sweden,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-06,Quarter-finals,quarterfinals,Brazil,Belgium,1,2,1,2,,,,,Belgium,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-06,Quarter-finals,quarterfinals,Uruguay,France,0,2,0,2,,,,,France,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-07,Quarter-finals,quarterfinals,Russia,Croatia,2,2,1,1,2.0,2.0,3.0,4.0,Croatia,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-07,Quarter-finals,quarterfinals,Sweden,England,0,2,0,2,,,,,England,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-10,Semi-finals,semifinals,France,Belgium,1,0,1,0,,,,,France,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-11,Semi-finals,semifinals,Croatia,England,2,1,1,1,2.0,1.0,,,Croatia,extra_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2018,2018-07-15,Final,final,France,Croatia,4,2,4,2,,,,,France,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2018/worldcup.json
+2022,2022-12-03,Round of 16,round_of_16,Argentina,Australia,2,1,2,1,,,,,Argentina,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-03,Round of 16,round_of_16,Netherlands,USA,3,1,3,1,,,,,Netherlands,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-04,Round of 16,round_of_16,England,Senegal,3,0,3,0,,,,,England,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-04,Round of 16,round_of_16,France,Poland,3,1,3,1,,,,,France,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-05,Round of 16,round_of_16,Brazil,South Korea,4,1,4,1,,,,,Brazil,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-05,Round of 16,round_of_16,Japan,Croatia,1,1,1,1,1.0,1.0,1.0,3.0,Croatia,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-06,Round of 16,round_of_16,Morocco,Spain,0,0,0,0,0.0,0.0,3.0,0.0,Morocco,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-06,Round of 16,round_of_16,Portugal,Switzerland,6,1,6,1,,,,,Portugal,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-09,Quarter-finals,quarterfinals,Croatia,Brazil,1,1,0,0,1.0,1.0,4.0,2.0,Croatia,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-09,Quarter-finals,quarterfinals,Netherlands,Argentina,2,2,2,2,2.0,2.0,3.0,4.0,Argentina,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-10,Quarter-finals,quarterfinals,England,France,1,2,1,2,,,,,France,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-10,Quarter-finals,quarterfinals,Morocco,Portugal,1,0,1,0,,,,,Morocco,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-13,Semi-finals,semifinals,Argentina,Croatia,3,0,3,0,,,,,Argentina,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-14,Semi-finals,semifinals,France,Morocco,2,0,2,0,,,,,France,full_time,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json
+2022,2022-12-18,Final,final,Argentina,France,3,3,2,2,3.0,3.0,4.0,2.0,Argentina,penalties,https://raw.githubusercontent.com/openfootball/worldcup.json/master/2022/worldcup.json

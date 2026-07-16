@@ -32,7 +32,7 @@ simulation_profiles:
       seed_count: 10
       simulations_per_seed: 2000
   publication:
-    simulation_count: 100000
+    simulation_count: 150000
     simulation_interval:
       enabled: true
       seed_count: 30

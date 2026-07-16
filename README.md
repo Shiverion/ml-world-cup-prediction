@@ -6,6 +6,10 @@ The project predicts match-level probabilities first, then aggregates those prob
 
 > **TL;DR:** Time-aware ML pipeline for World Cup match-outcome forecasting using Elo strength, rolling form, FIFA ranking, and leakage-aware feature generation. Rolling World Cup backtests from 2002-2022 show about 56.0% average accuracy for the primary ML model, matching strong Elo-only baselines while improving probability quality versus Elo Poisson (log loss 0.973 vs. 0.985; Brier 0.573 vs. 0.581) and substantially beating random uniform forecasting (33.6% accuracy, 1.099 log loss). The model is selected on log loss rather than raw accuracy because match probabilities feed a 48-team Monte Carlo tournament simulator with official FIFA Annex C bracket logic.
 
+## Technical Documentation
+
+See **[World Cup Prediction Engine: Technical Methodology](docs/METHODOLOGY.md)** for the full specification. It documents data lineage, temporal cutoffs, feature formulas, Elo updates, the multinomial model, historical validation, the frozen-anchor live ensemble, extra-time and penalty handling, tournament simulation, direct-vs-Monte-Carlo semantics, snapshot reproducibility, UI labels, limitations, and research priorities.
+
 ## What This Demonstrates
 
 This repository is built to show a forecasting workflow, not only a football dashboard:
@@ -21,7 +25,7 @@ This repository is built to show a forecasting workflow, not only a football das
 - The default `ml_outcome` simulator uses the primary ML model for win/draw/loss probabilities, then samples scorelines conditionally from outcome templates. It does not yet estimate team-specific expected goals (`team_a_goals_lambda`, `team_b_goals_lambda`) in that path.
 - The Elo-scaled independent Poisson simulator remains available as a baseline, but it is not a Dixon-Coles or bivariate Poisson score model.
 - FIFA ranking freshness depends on the latest downloaded ranking snapshot. If ranking data is stale relative to match results, ranking features should be interpreted cautiously.
-- Live forecasts are not pure pre-tournament predictions. They lock completed group-stage results and resimulate the remaining tournament from the current cutoff.
+- Live forecasts are not pure pre-tournament predictions. They lock completed group and knockout results, blend a frozen pre-knockout anchor with the current live model, and resimulate only unresolved outcomes.
 
 The 2026 FIFA World Cup started on June 11, 2026. To produce a true pre-tournament forecast, configure a data cutoff before that date. If you include matches after kickoff, treat the output as a live-updating forecast instead.
 
@@ -33,6 +37,7 @@ data/
   processed/           # generated datasets, ignored by git
   external/            # team mapping and manual lookup files
 configs/               # YAML configs for data, models, backtests, tournament setup
+docs/                  # full technical methodology and interpretation contract
 src/worldcup_prediction/
   cleaning.py          # schema checks and standardization
   elo.py               # pre-match Elo features
@@ -131,16 +136,16 @@ Simulation runtime can be selected with profiles from `configs/tournament_2026.y
 python scripts/run_analysis.py --profile dev
 python scripts/run_analysis.py --profile local
 python scripts/run_analysis.py --profile publication
-python scripts/run_analysis.py --live --profile dev
+python scripts/run_analysis.py --live --profile local
 ```
 
 Profile intent:
 
 | Profile | Main simulations | Interval seeds | Simulations per interval seed | Use case |
 | --- | ---: | ---: | ---: | --- |
-| `dev` | 3,000 | 3 | 500 | Streamlit and quick local refresh |
+| `dev` | 3,000 | 3 | 500 | tests, reconstructed snapshots, and quick iteration |
 | `local` | 20,000 | 10 | 2,000 | normal local analysis |
-| `publication` | 100,000 | 30 | 5,000 | paper-style forecast artifacts |
+| `publication` | 150,000 | 30 | 5,000 | high-precision publication/final artifacts |
 
 For live tournament updates from the command line:
 
@@ -148,7 +153,7 @@ For live tournament updates from the command line:
 python scripts/update_live.py
 ```
 
-The Streamlit live-update button and `scripts/update_live.py` should stay on the `dev` profile. Use `publication` manually from the CLI when you intentionally want a long-running, high-precision artifact.
+The Streamlit live-update button, `scripts/update_live.py`, and the scheduled GitHub Action use the `local` profile. Use `publication` manually from the CLI when you intentionally want a high-precision artifact.
 
 The pipeline writes cleaned data and features to `data/processed/`, rolling backtests to `outputs/backtest_results/model_backtest.csv`, research evaluation reports to `outputs/evaluation/`, simulation outputs under `outputs/simulations/`, and a reproducible forecast snapshot under `outputs/forecast_registry/`.
 
@@ -175,6 +180,7 @@ group_position_probabilities_2026.csv
 predicted_knockout_bracket_2026.csv
 match_probabilities_2026.csv
 team_probabilities_2026_with_ci.csv
+knockout_model_vs_monte_carlo_2026.csv
 ```
 
 Live mode writes the same files with a `_live` suffix, including `match_probabilities_2026_live.csv` and `team_probabilities_2026_live_with_ci.csv`.
@@ -183,7 +189,7 @@ Tournament simulation now uses the configured primary ML model as the default ma
 
 ## Forecast Modes
 
-The app separates the frozen baseline forecast from the refreshed in-tournament forecast.
+The app separates pre-tournament, frozen pre-knockout, and adaptive live forecasts.
 
 ### Pre-Tournament
 
@@ -199,6 +205,19 @@ In this mode:
 
 This mode should use a cutoff before the tournament starts. For the 2026 World Cup, that means before June 11, 2026.
 
+### Pre-Knockout
+
+Pre-knockout mode freezes the state after all group-stage matches and before the Round of 32. It is meant to answer: "Given the real final group standings, what did the model predict before any knockout result was known?"
+
+In this mode:
+
+- All expected group-stage matches must be completed.
+- Actual group results and final standings are locked.
+- Group-stage results update the eligible training history, Elo, and form state.
+- No knockout result is included.
+- The snapshot is the Round-of-32 prediction baseline.
+- Outputs use `_pre_knockout` filenames.
+
 ### Live
 
 Live mode is the refreshed forecast after the tournament has started. It is meant to answer: "Given the latest completed matches we have downloaded, what happens from here?"
@@ -206,9 +225,10 @@ Live mode is the refreshed forecast after the tournament has started. It is mean
 In this mode:
 
 - The app downloads the public 2026 fixture/results feed.
-- Completed group-stage matches are locked into simulated group tables with their actual scores.
-- Unplayed group matches are simulated with the configured match-outcome probability engine.
-- The knockout bracket is simulated from the resulting group qualifiers and fixed 2026 bracket path.
+- Completed group and knockout matches are locked with their actual scores and advancing teams.
+- A frozen post-group-stage anchor is blended with a model rebuilt from currently completed knockout results.
+- Round-specific live weight is `min(0.35, n / (n + 80))`, where `n` is completed knockout matches.
+- Earlier rounds are evaluated against snapshots saved before those rounds, not against a post-result model.
 - Outputs use `_live` filenames such as `team_probabilities_2026_live.csv`.
 
 Live mode is not automatic minute-by-minute score tracking. It changes when `python scripts/update_live.py` runs or when the Streamlit **Update live data** button completes. If the public source feed has not posted a result yet, the app cannot include that result.
@@ -231,7 +251,7 @@ Current downloader sources:
 - FIFA rankings: `Dato-Futbol/fifa-ranking` for the historical feed plus the official FIFA ranking API for the latest snapshot, normalized to `rank_date, team, rank, points`.
 - 2026 fixtures/results: `openfootball/worldcup.json`.
 
-As of the last checked download, match results run through 2026-06-22 and FIFA rankings run through the official 2026-06-11 snapshot. The tournament config keeps match training strict-before the 2026-06-11 kickoff cutoff while allowing the same-day official ranking snapshot for simulation strength features.
+Source freshness changes over time. Every forecast registry records its effective data cutoff, while the tournament config keeps historical match training strict-before its cutoff and can allow an eligible same-day official ranking snapshot for simulation strength features.
 
 ## Model Notes
 
@@ -251,6 +271,8 @@ backtest_model_candidates:
 The selected model is the conservative winner on average log loss across rolling World Cup windows. Accuracy is tracked, but model selection prioritizes probability quality because tournament simulation depends on calibrated probabilities.
 
 ## Methodology
+
+The concise overview below is expanded in **[docs/METHODOLOGY.md](docs/METHODOLOGY.md)**. That document is the interpretation contract for probability labels, adaptive updates, knockout evaluation, penalties, and Monte Carlo output.
 
 The project separates match prediction from tournament simulation:
 
@@ -354,9 +376,9 @@ By default, match outcome probabilities are produced by the configured primary M
 - the trained primary model returns three-way win/draw/loss probabilities
 - simulated scorelines are sampled conditionally from the predicted outcome so group points, goal difference, and goals-for tiebreakers remain available
 
-The Elo-scaled independent Poisson simulator remains available as `simulation_predictor: elo_poisson` for scoreline-model baselines. Live mode locks completed group-stage results from the 2026 fixture feed, then simulates only the remaining matches.
+The Elo-scaled independent Poisson simulator remains available as `simulation_predictor: elo_poisson` for scoreline-model baselines. Live mode locks completed group and knockout results from the 2026 fixture feed, then simulates only the remaining matches with the frozen-anchor adaptive ensemble.
 
-Simulation uncertainty is estimated by repeating Monte Carlo runs across deterministic seeds. The default `dev` profile uses a lighter configuration for dashboard speed; use `--profile local` or `--profile publication` for higher-precision forecast artifacts.
+Simulation uncertainty is estimated by repeating Monte Carlo runs across deterministic seeds. Use `dev` for quick iteration, `local` for routine live refresh, or `publication` for the 150,000-run high-precision artifact.
 
 ### Forecast Registry
 
@@ -376,6 +398,8 @@ team_probabilities.csv
 group_position_probabilities.csv
 predicted_knockout_bracket.csv
 match_probabilities.csv
+team_probabilities_with_ci.csv
+knockout_model_vs_monte_carlo.csv
 ```
 
 `config.yaml` stores output references as project-relative paths where possible, using portable `/` separators instead of machine-specific absolute paths. Absolute local paths outside the project root are masked as `${LOCAL_PATH}/...` so registry metadata does not depend on one Windows user directory.
@@ -419,7 +443,12 @@ Relevant references and background:
 - official Annex C third-place assignment table
 - simulation uncertainty intervals across seeds
 - forecast registry and model card
-- live group-result locking
+- pre-tournament, pre-knockout, and live forecast separation
+- completed group and knockout-result locking
+- frozen-anchor adaptive live probability ensemble
+- historical round-wise live-weight backtest
+- extra-time and penalty-aware result ingestion
+- direct-model vs Monte Carlo comparison output
 - Streamlit dashboard with one-click live refresh
 - Streamlit knockout bracket zoom controls
 - group-position probability output
@@ -437,9 +466,10 @@ Relevant references and background:
 - Add Dixon-Coles or bivariate Poisson score modeling.
 - Add a hybrid ML outcome plus fitted expected-goals scoreline layer.
 - Add recency-weighted Elo and tune K-factors through time-aware validation.
+- Add a separately validated extra-time and penalty-shootout layer.
+- Add chronological bootstrap or Bayesian parameter uncertainty.
 - Add market odds or squad value features if reliable public data is available.
 - Cache live updates so Streamlit Cloud refreshes faster.
-- Add scheduled refresh outside the Streamlit request cycle.
 
 ## Example Pipeline
 

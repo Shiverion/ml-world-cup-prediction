@@ -1,0 +1,3 @@
+scenario,cutoff,match,team_a,team_b,team_a_advance_probability,team_b_advance_probability,predicted_winner,live_weight,anchor_weight,prior_strength,max_live_weight,completed_knockout_matches
+current,2026-07-16,104,Spain,Argentina,0.497218067066643,0.5027819329333569,Argentina,0.2727,0.7273,80.0,0.35,30
+shadow,2026-07-16,104,Spain,Argentina,0.497908547960664,0.502091452039336,Argentina,0.2,0.8,120.0,0.35,30

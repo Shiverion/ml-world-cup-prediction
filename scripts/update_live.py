@@ -15,7 +15,7 @@ def run_step(args: list[str]) -> None:
 
 def main() -> None:
     run_step([sys.executable, "scripts/download_data.py"])
-    run_step([sys.executable, "scripts/run_analysis.py", "--live", "--profile", "dev"])
+    run_step([sys.executable, "scripts/run_analysis.py", "--live", "--profile", "local"])
 
 
 if __name__ == "__main__":

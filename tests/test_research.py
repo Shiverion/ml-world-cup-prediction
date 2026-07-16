@@ -65,6 +65,8 @@ def test_forecast_registry_config_uses_portable_paths(tmp_path):
     simulation_path = tmp_path / "outputs" / "simulations" / "team_probabilities.csv"
     simulation_path.parent.mkdir(parents=True)
     pd.DataFrame({"team": ["A"], "champion": [0.1]}).to_csv(simulation_path, index=False)
+    comparison_path = tmp_path / "outputs" / "simulations" / "knockout_comparison.csv"
+    pd.DataFrame({"match": [104], "direct_winner": ["A"]}).to_csv(comparison_path, index=False)
 
     outside_path = tmp_path.parent / "local_only_interval.csv"
 
@@ -78,6 +80,7 @@ def test_forecast_registry_config_uses_portable_paths(tmp_path):
         feature_columns=["elo_diff"],
         output_paths={
             "simulation": simulation_path,
+            "knockout_comparison": comparison_path,
             "simulation_interval": outside_path,
         },
     )
@@ -86,5 +89,7 @@ def test_forecast_registry_config_uses_portable_paths(tmp_path):
     registry_config = yaml.safe_load(config_text)
 
     assert registry_config["outputs"]["simulation"] == "outputs/simulations/team_probabilities.csv"
+    assert registry_config["outputs"]["knockout_comparison"] == "outputs/simulations/knockout_comparison.csv"
     assert registry_config["outputs"]["simulation_interval"] == "${LOCAL_PATH}/local_only_interval.csv"
+    assert (registry_dir / "knockout_model_vs_monte_carlo.csv").exists()
     assert str(tmp_path) not in config_text

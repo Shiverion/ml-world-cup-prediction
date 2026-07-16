@@ -635,7 +635,14 @@ def _top_counter_value(counter: Counter[str], n_simulations: int) -> tuple[str |
 def _bracket_rows(
     bracket_counts: Mapping[tuple[str, int], Mapping[str, Counter[str]]],
     n_simulations: int,
+    predict_match: MatchProbabilityFn | None = None,
+    completed_knockout_matches: Sequence[Mapping[str, Any]] | None = None,
 ) -> pd.DataFrame:
+    completed_match_ids = {
+        int(match["match"])
+        for match in completed_knockout_matches or []
+        if "match" in match
+    }
     rows: list[dict[str, Any]] = []
     for (round_name, match_id), counters in sorted(bracket_counts.items(), key=lambda item: item[0][1]):
         team_a, team_a_probability = _top_counter_value(counters["team_a"], n_simulations)
@@ -649,6 +656,79 @@ def _bracket_rows(
             else 0
         )
         winner_match_probability = winner_match_count / matchup_count if matchup_count else winner_probability
+        team_a_match_count = (
+            counters["matchup_winner"].get((team_a, team_b, team_a), 0)
+            if team_a and team_b
+            else 0
+        )
+        monte_carlo_team_a_probability = team_a_match_count / matchup_count if matchup_count else np.nan
+        monte_carlo_team_b_probability = (
+            1.0 - monte_carlo_team_a_probability
+            if not pd.isna(monte_carlo_team_a_probability)
+            else np.nan
+        )
+        monte_carlo_standard_error = (
+            float(
+                np.sqrt(
+                    monte_carlo_team_a_probability
+                    * (1.0 - monte_carlo_team_a_probability)
+                    / matchup_count
+                )
+            )
+            if matchup_count and not pd.isna(monte_carlo_team_a_probability)
+            else np.nan
+        )
+        monte_carlo_ci95_lower = (
+            max(0.0, monte_carlo_team_a_probability - 1.96 * monte_carlo_standard_error)
+            if not pd.isna(monte_carlo_standard_error)
+            else np.nan
+        )
+        monte_carlo_ci95_upper = (
+            min(1.0, monte_carlo_team_a_probability + 1.96 * monte_carlo_standard_error)
+            if not pd.isna(monte_carlo_standard_error)
+            else np.nan
+        )
+
+        matchup_fixed = bool(matchup_count == n_simulations and team_a and team_b)
+        direct_probabilities: dict[str, float] | None = None
+        if predict_match is not None and team_a and team_b and match_id not in completed_match_ids:
+            direct_probabilities = normalize_match_probabilities(
+                predict_match(
+                    team_a,
+                    team_b,
+                    {"stage": round_name, "match": match_id},
+                )
+            )
+        direct_team_a_probability = (
+            advancement_probability(direct_probabilities)
+            if direct_probabilities is not None
+            else np.nan
+        )
+        direct_team_b_probability = (
+            1.0 - direct_team_a_probability
+            if not pd.isna(direct_team_a_probability)
+            else np.nan
+        )
+        if direct_probabilities is None or team_a is None or team_b is None:
+            direct_winner = None
+            direct_winner_probability = np.nan
+        elif direct_team_a_probability >= direct_team_b_probability:
+            direct_winner = team_a
+            direct_winner_probability = direct_team_a_probability
+        else:
+            direct_winner = team_b
+            direct_winner_probability = direct_team_b_probability
+
+        direct_vs_monte_carlo_delta = (
+            monte_carlo_team_a_probability - direct_team_a_probability
+            if not pd.isna(monte_carlo_team_a_probability) and not pd.isna(direct_team_a_probability)
+            else np.nan
+        )
+        direct_within_monte_carlo_ci = (
+            bool(monte_carlo_ci95_lower <= direct_team_a_probability <= monte_carlo_ci95_upper)
+            if not pd.isna(monte_carlo_ci95_lower) and not pd.isna(direct_team_a_probability)
+            else None
+        )
         rows.append(
             {
                 "round": round_name,
@@ -661,9 +741,215 @@ def _bracket_rows(
                 "winner_top": winner,
                 "winner_probability": winner_probability,
                 "winner_match_probability": winner_match_probability,
+                "monte_carlo_winner": winner,
+                "monte_carlo_winner_probability": winner_match_probability,
+                "monte_carlo_team_a_advance_probability": monte_carlo_team_a_probability,
+                "monte_carlo_team_b_advance_probability": monte_carlo_team_b_probability,
+                "monte_carlo_sample_size": matchup_count,
+                "monte_carlo_standard_error": monte_carlo_standard_error,
+                "monte_carlo_team_a_ci95_lower": monte_carlo_ci95_lower,
+                "monte_carlo_team_a_ci95_upper": monte_carlo_ci95_upper,
+                "direct_team_a_win_probability": (
+                    direct_probabilities["team_a_win"] if direct_probabilities is not None else np.nan
+                ),
+                "direct_draw_probability": (
+                    direct_probabilities["draw"] if direct_probabilities is not None else np.nan
+                ),
+                "direct_team_b_win_probability": (
+                    direct_probabilities["team_b_win"] if direct_probabilities is not None else np.nan
+                ),
+                "direct_team_a_advance_probability": direct_team_a_probability,
+                "direct_team_b_advance_probability": direct_team_b_probability,
+                "direct_winner": direct_winner,
+                "direct_winner_probability": direct_winner_probability,
+                "direct_matchup_fixed": matchup_fixed,
+                "direct_vs_monte_carlo_delta": direct_vs_monte_carlo_delta,
+                "direct_within_monte_carlo_ci": direct_within_monte_carlo_ci,
             }
         )
     return pd.DataFrame(rows)
+
+
+def knockout_model_vs_monte_carlo_frame(bracket: pd.DataFrame) -> pd.DataFrame:
+    """Return auditable direct-model and simulation estimates for unresolved matchups."""
+    if bracket.empty or "direct_winner" not in bracket:
+        return pd.DataFrame()
+    comparison = bracket[bracket["direct_winner"].notna()].copy()
+    if comparison.empty:
+        return comparison
+    comparison["matchup"] = comparison["team_a_top"].astype(str) + " vs " + comparison["team_b_top"].astype(str)
+    comparison["prediction_agreement"] = (
+        comparison["direct_winner"].astype(str) == comparison["monte_carlo_winner"].astype(str)
+    )
+    comparison["absolute_probability_delta"] = comparison["direct_vs_monte_carlo_delta"].abs()
+    columns = [
+        "round",
+        "match",
+        "matchup",
+        "team_a_top",
+        "team_b_top",
+        "direct_matchup_fixed",
+        "matchup_probability",
+        "direct_team_a_win_probability",
+        "direct_draw_probability",
+        "direct_team_b_win_probability",
+        "direct_team_a_advance_probability",
+        "direct_team_b_advance_probability",
+        "direct_winner",
+        "direct_winner_probability",
+        "monte_carlo_team_a_advance_probability",
+        "monte_carlo_team_b_advance_probability",
+        "monte_carlo_winner",
+        "monte_carlo_winner_probability",
+        "monte_carlo_sample_size",
+        "monte_carlo_standard_error",
+        "monte_carlo_team_a_ci95_lower",
+        "monte_carlo_team_a_ci95_upper",
+        "direct_vs_monte_carlo_delta",
+        "absolute_probability_delta",
+        "direct_within_monte_carlo_ci",
+        "prediction_agreement",
+    ]
+    return comparison[columns].reset_index(drop=True)
+
+
+def _simulate_locked_tournament_with_final_pending(
+    teams_by_group: Mapping[str, Sequence[str]],
+    predict_match: MatchProbabilityFn,
+    n_simulations: int,
+    rng: np.random.Generator,
+    third_place_count: int,
+    knockout_bracket: Mapping[str, Any] | None,
+    completed_group_matches: Sequence[Mapping[str, Any]] | None,
+    completed_knockout_matches: Sequence[Mapping[str, Any]] | None,
+) -> dict[str, pd.DataFrame] | None:
+    """Vectorize the final-only state after every preceding fixture is locked."""
+    if not knockout_bracket or not completed_group_matches or not completed_knockout_matches:
+        return None
+    expected_group_matches = len(generate_round_robin_matches(teams_by_group))
+    completed_group_keys = {group_match_key(match) for match in completed_group_matches}
+    if len(completed_group_keys) != expected_group_matches:
+        return None
+
+    final_matches = list(knockout_bracket.get("final", []))
+    if len(final_matches) != 1:
+        return None
+    final_config = final_matches[0]
+    final_match_id = int(final_config["match"])
+    completed_by_match = {
+        int(match["match"]): match
+        for match in completed_knockout_matches
+        if "match" in match
+    }
+    if final_match_id in completed_by_match:
+        return None
+
+    configured_non_final_ids = {
+        int(match["match"])
+        for round_key in ["round_of_32", "round_of_16", "quarterfinals", "semifinals"]
+        for match in knockout_bracket.get(round_key, [])
+    }
+    if not configured_non_final_ids or not configured_non_final_ids.issubset(completed_by_match):
+        return None
+
+    source_matches = [int(match_id) for match_id in final_config.get("winners_of", [])]
+    if len(source_matches) != 2 or any(match_id not in completed_by_match for match_id in source_matches):
+        return None
+    team_a = str(completed_by_match[source_matches[0]]["winner"])
+    team_b = str(completed_by_match[source_matches[1]]["winner"])
+    if not team_a or not team_b or team_a == team_b:
+        return None
+
+    group_table, _ = simulate_group_stage(
+        teams_by_group,
+        predict_match,
+        rng=np.random.default_rng(0),
+        completed_matches=completed_group_matches,
+    )
+    all_teams = [team for teams in teams_by_group.values() for team in teams]
+    milestones = [
+        "group_win",
+        "advance_from_group",
+        "reach_r32",
+        "reach_r16",
+        "reach_qf",
+        "reach_sf",
+        "reach_final",
+        "champion",
+    ]
+    counts = {team: {milestone: 0 for milestone in milestones} for team in all_teams}
+    position_counts = {team: {position: 0 for position in range(1, 5)} for team in all_teams}
+    for row in group_table.itertuples(index=False):
+        position_counts[str(row.team)][int(row.position)] = n_simulations
+        if int(row.position) == 1:
+            counts[str(row.team)]["group_win"] = n_simulations
+    qualifiers = select_group_qualifiers(group_table, third_place_count=third_place_count)
+    for team in qualifiers["team"].astype(str):
+        counts[team]["advance_from_group"] = n_simulations
+        counts[team]["reach_r32"] = n_simulations
+
+    round_milestones = {
+        "round_of_32": "reach_r16",
+        "round_of_16": "reach_qf",
+        "quarterfinals": "reach_sf",
+        "semifinals": "reach_final",
+    }
+    bracket_counts: dict[tuple[str, int], dict[str, Counter[str]]] = defaultdict(
+        lambda: {
+            "team_a": Counter(),
+            "team_b": Counter(),
+            "appearance": Counter(),
+            "winner": Counter(),
+            "matchup": Counter(),
+            "matchup_winner": Counter(),
+        }
+    )
+    for match in completed_knockout_matches:
+        round_key = str(match["round"])
+        match_id = int(match["match"])
+        match_team_a = str(match["team_a"])
+        match_team_b = str(match["team_b"])
+        match_winner = str(match["winner"])
+        key = (round_key, match_id)
+        bracket_counts[key]["team_a"][match_team_a] = n_simulations
+        bracket_counts[key]["team_b"][match_team_b] = n_simulations
+        bracket_counts[key]["appearance"][match_team_a] += n_simulations
+        bracket_counts[key]["appearance"][match_team_b] += n_simulations
+        bracket_counts[key]["matchup"][(match_team_a, match_team_b)] = n_simulations
+        bracket_counts[key]["winner"][match_winner] = n_simulations
+        bracket_counts[key]["matchup_winner"][(match_team_a, match_team_b, match_winner)] = n_simulations
+        milestone = round_milestones.get(round_key)
+        if milestone and match_winner in counts:
+            counts[match_winner][milestone] = n_simulations
+
+    final_probability_a = advancement_probability(
+        predict_match(team_a, team_b, {"stage": "final", "match": final_match_id})
+    )
+    team_a_wins = int(rng.binomial(n_simulations, final_probability_a))
+    team_b_wins = n_simulations - team_a_wins
+    final_key = ("final", final_match_id)
+    bracket_counts[final_key]["team_a"][team_a] = n_simulations
+    bracket_counts[final_key]["team_b"][team_b] = n_simulations
+    bracket_counts[final_key]["appearance"][team_a] += n_simulations
+    bracket_counts[final_key]["appearance"][team_b] += n_simulations
+    bracket_counts[final_key]["matchup"][(team_a, team_b)] = n_simulations
+    bracket_counts[final_key]["winner"][team_a] = team_a_wins
+    bracket_counts[final_key]["winner"][team_b] = team_b_wins
+    bracket_counts[final_key]["matchup_winner"][(team_a, team_b, team_a)] = team_a_wins
+    bracket_counts[final_key]["matchup_winner"][(team_a, team_b, team_b)] = team_b_wins
+    counts[team_a]["champion"] = team_a_wins
+    counts[team_b]["champion"] = team_b_wins
+
+    return {
+        "team_probabilities": _probability_rows(counts, n_simulations),
+        "group_positions": _group_position_rows(position_counts, teams_by_group, n_simulations),
+        "knockout_bracket": _bracket_rows(
+            bracket_counts,
+            n_simulations,
+            predict_match=predict_match,
+            completed_knockout_matches=completed_knockout_matches,
+        ),
+    }
 
 
 def simulate_tournament_detailed(
@@ -677,6 +963,18 @@ def simulate_tournament_detailed(
     completed_knockout_matches: Sequence[Mapping[str, Any]] | None = None,
 ) -> dict[str, pd.DataFrame]:
     rng = np.random.default_rng(seed)
+    locked_final_result = _simulate_locked_tournament_with_final_pending(
+        teams_by_group,
+        predict_match,
+        n_simulations,
+        rng,
+        third_place_count,
+        knockout_bracket,
+        completed_group_matches,
+        completed_knockout_matches,
+    )
+    if locked_final_result is not None:
+        return locked_final_result
     all_teams = [team for teams in teams_by_group.values() for team in teams]
     milestones = [
         "group_win",
@@ -752,7 +1050,12 @@ def simulate_tournament_detailed(
     return {
         "team_probabilities": _probability_rows(counts, n_simulations),
         "group_positions": _group_position_rows(position_counts, teams_by_group, n_simulations),
-        "knockout_bracket": _bracket_rows(bracket_counts, n_simulations),
+        "knockout_bracket": _bracket_rows(
+            bracket_counts,
+            n_simulations,
+            predict_match=predict_match,
+            completed_knockout_matches=completed_knockout_matches,
+        ),
     }
 
 

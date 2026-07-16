@@ -530,6 +530,11 @@ def write_forecast_registry(
             registry_dir / "predicted_knockout_bracket.csv",
             index=False,
         )
+    if output_paths.get("knockout_comparison"):
+        pd.read_csv(output_paths["knockout_comparison"]).to_csv(
+            registry_dir / "knockout_model_vs_monte_carlo.csv",
+            index=False,
+        )
     if match_probabilities is not None:
         match_probabilities.to_csv(registry_dir / "match_probabilities.csv", index=False)
 
@@ -557,6 +562,7 @@ def write_forecast_registry_frames(
         "simulation": "team_probabilities.csv",
         "group_positions": "group_position_probabilities.csv",
         "knockout_bracket": "predicted_knockout_bracket.csv",
+        "knockout_comparison": "knockout_model_vs_monte_carlo.csv",
         "simulation_interval": "team_probabilities_with_ci.csv",
     }
     outputs: dict[str, str] = {}

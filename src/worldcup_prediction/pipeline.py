@@ -39,6 +39,7 @@ from worldcup_prediction.simulator import (
     MatchProbabilityFn,
     SimulatedMatch,
     build_round_of_32_bracket,
+    knockout_model_vs_monte_carlo_frame,
     normalize_match_probabilities,
     poisson_outcome_probabilities,
     rank_group,
@@ -1503,6 +1504,7 @@ def run_reconstructed_live_snapshot(
         completed_knockout_matches=completed_knockout_matches,
     )
     group_match_probabilities = match_probability_frame(teams_by_group, predictor)
+    knockout_comparison = knockout_model_vs_monte_carlo_frame(simulation_outputs["knockout_bracket"])
     return write_forecast_registry_frames(
         root,
         "reconstructed_live",
@@ -1515,11 +1517,13 @@ def run_reconstructed_live_snapshot(
             "simulation": simulation_outputs["team_probabilities"],
             "group_positions": simulation_outputs["group_positions"],
             "knockout_bracket": simulation_outputs["knockout_bracket"],
+            "knockout_comparison": knockout_comparison,
         },
         match_probabilities=group_match_probabilities,
         metadata={
             "reconstructed": True,
             "forecast_round": forecast_round_key,
+            "simulation_profile": tournament_config.get("simulation_profile", ""),
             "source_live_results": registry_path_reference(live_fixtures_path, root),
             **(forecast_metadata or {}),
         },
@@ -1672,6 +1676,7 @@ def run_analysis(
     bracket_output_path: Path | None = None
     simulation_interval_output_path: Path | None = None
     match_probabilities_output_path: Path | None = None
+    knockout_comparison_output_path: Path | None = None
     forecast_registry_output_path: Path | None = None
     if teams_by_group:
         ratings = final_elo_ratings(matches_clean, cutoff=cutoff)
@@ -1737,9 +1742,14 @@ def run_analysis(
         group_positions_output_path = root / "outputs" / "simulations" / f"group_position_probabilities_2026{suffix}.csv"
         bracket_output_path = root / "outputs" / "simulations" / f"predicted_knockout_bracket_2026{suffix}.csv"
         match_probabilities_output_path = root / "outputs" / "simulations" / f"match_probabilities_2026{suffix}.csv"
+        knockout_comparison_output_path = (
+            root / "outputs" / "simulations" / f"knockout_model_vs_monte_carlo_2026{suffix}.csv"
+        )
         write_csv(simulation_outputs["team_probabilities"], simulation_output_path)
         write_csv(simulation_outputs["group_positions"], group_positions_output_path)
         write_csv(simulation_outputs["knockout_bracket"], bracket_output_path)
+        knockout_comparison = knockout_model_vs_monte_carlo_frame(simulation_outputs["knockout_bracket"])
+        write_csv(knockout_comparison, knockout_comparison_output_path)
         group_match_probabilities = match_probability_frame(teams_by_group, predictor)
         write_csv(group_match_probabilities, match_probabilities_output_path)
 
@@ -1784,10 +1794,14 @@ def run_analysis(
                 "simulation": simulation_output_path,
                 "group_positions": group_positions_output_path,
                 "knockout_bracket": bracket_output_path,
+                "knockout_comparison": knockout_comparison_output_path,
                 "simulation_interval": simulation_interval_output_path,
             },
             match_probabilities=group_match_probabilities,
-            metadata=forecast_metadata,
+            metadata={
+                **(forecast_metadata or {}),
+                "simulation_profile": tournament_config.get("simulation_profile", ""),
+            },
         )
 
     return {
@@ -1801,6 +1815,7 @@ def run_analysis(
         "group_positions": group_positions_output_path,
         "knockout_bracket": bracket_output_path,
         "match_probabilities": match_probabilities_output_path,
+        "knockout_comparison": knockout_comparison_output_path,
         "simulation_intervals": simulation_interval_output_path,
         "forecast_registry": forecast_registry_output_path,
     }

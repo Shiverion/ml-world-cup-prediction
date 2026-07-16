@@ -9,6 +9,7 @@ from worldcup_prediction.simulator import (
     ThirdPlaceSlot,
     assign_third_place_slots,
     build_round_of_32_bracket,
+    knockout_model_vs_monte_carlo_frame,
     normalize_match_probabilities,
     pair_bracket_winners,
     poisson_outcome_probabilities,
@@ -221,6 +222,15 @@ def test_simulate_tournament_detailed_returns_group_positions_and_bracket_rows()
     assert {"team_probabilities", "group_positions", "knockout_bracket"} <= set(details)
     assert set(details["group_positions"]["team"]) == {"A1", "A2", "A3", "A4", "B1", "B2", "B3", "B4"}
     assert not details["knockout_bracket"].empty
+    first_match = details["knockout_bracket"].set_index("match").loc[73]
+    assert first_match["direct_matchup_fixed"]
+    assert first_match["direct_team_a_advance_probability"] == pytest.approx(1.0)
+    assert first_match["direct_winner"] == first_match["team_a_top"]
+    assert first_match["monte_carlo_sample_size"] == 1
+
+    comparison = knockout_model_vs_monte_carlo_frame(details["knockout_bracket"])
+    assert not comparison.empty
+    assert comparison.loc[comparison["match"] == 73, "prediction_agreement"].iloc[0]
 
 
 def test_completed_knockout_match_winner_is_locked_into_later_rounds():
@@ -260,9 +270,59 @@ def test_completed_knockout_match_winner_is_locked_into_later_rounds():
     teams = details["team_probabilities"].set_index("team")
     assert bracket.loc[73, "winner_top"] == "B2"
     assert bracket.loc[73, "winner_match_probability"] == pytest.approx(1.0)
+    assert pd.isna(bracket.loc[73, "direct_winner"])
     assert bracket.loc[89, "team_a_top"] == "B2"
     assert teams.loc["B2", "reach_r16"] == pytest.approx(1.0)
     assert teams.loc["A1", "reach_r16"] == pytest.approx(0.0)
+
+
+def test_final_only_simulation_vectorizes_locked_tournament():
+    teams_by_group = {
+        "A": ["A1", "A2", "A3", "A4"],
+        "B": ["B1", "B2", "B3", "B4"],
+    }
+    completed_group_matches = []
+    for group, teams in teams_by_group.items():
+        for index, team_a in enumerate(teams):
+            for team_b in teams[index + 1 :]:
+                completed_group_matches.append(
+                    {
+                        "group": group,
+                        "team_a": team_a,
+                        "team_b": team_b,
+                        "team_a_score": 1,
+                        "team_b_score": 0,
+                    }
+                )
+    bracket_config = {
+        "round_of_32": [
+            {"match": 73, "teams": [{"group": "A", "position": 1}, {"group": "B", "position": 2}]},
+            {"match": 74, "teams": [{"group": "B", "position": 1}, {"group": "A", "position": 2}]},
+        ],
+        "final": [{"match": 104, "winners_of": [73, 74]}],
+    }
+    completed_knockout_matches = [
+        {"round": "round_of_32", "match": 73, "team_a": "A1", "team_b": "B2", "winner": "A1"},
+        {"round": "round_of_32", "match": 74, "team_a": "B1", "team_b": "A2", "winner": "B1"},
+    ]
+
+    details = simulate_tournament_detailed(
+        teams_by_group,
+        lambda team_a, team_b, context=None: {"team_a_win": 0.6, "draw": 0.2, "team_b_win": 0.2},
+        n_simulations=150_000,
+        seed=42,
+        third_place_count=0,
+        knockout_bracket=bracket_config,
+        completed_group_matches=completed_group_matches,
+        completed_knockout_matches=completed_knockout_matches,
+    )
+
+    final = details["knockout_bracket"].set_index("match").loc[104]
+    champions = details["team_probabilities"].set_index("team")["champion"]
+    assert final["direct_team_a_advance_probability"] == pytest.approx(0.7)
+    assert final["monte_carlo_sample_size"] == 150_000
+    assert final["monte_carlo_team_a_advance_probability"] == pytest.approx(0.7, abs=0.005)
+    assert champions.sum() == pytest.approx(1.0)
 
 
 def test_rank_group_orders_by_points_goal_difference_and_goals_for():

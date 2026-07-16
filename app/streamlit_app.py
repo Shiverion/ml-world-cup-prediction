@@ -51,6 +51,11 @@ pre_knockout_bracket_path = ROOT / "outputs" / "simulations" / "predicted_knocko
 match_probabilities_path = ROOT / "outputs" / "simulations" / "match_probabilities_2026.csv"
 live_match_probabilities_path = ROOT / "outputs" / "simulations" / "match_probabilities_2026_live.csv"
 pre_knockout_match_probabilities_path = ROOT / "outputs" / "simulations" / "match_probabilities_2026_pre_knockout.csv"
+knockout_comparison_path = ROOT / "outputs" / "simulations" / "knockout_model_vs_monte_carlo_2026.csv"
+live_knockout_comparison_path = ROOT / "outputs" / "simulations" / "knockout_model_vs_monte_carlo_2026_live.csv"
+pre_knockout_comparison_path = (
+    ROOT / "outputs" / "simulations" / "knockout_model_vs_monte_carlo_2026_pre_knockout.csv"
+)
 backtest_path = ROOT / "outputs" / "backtest_results" / "model_backtest.csv"
 backtest_summary_path = ROOT / "outputs" / "backtest_results" / "model_backtest_summary.csv"
 evaluation_dir = ROOT / "outputs" / "evaluation"
@@ -99,6 +104,28 @@ def row_value(row: pd.Series | dict[str, object], *columns: str) -> object:
         if value is not None and not pd.isna(value) and str(value).strip():
             return value
     return ""
+
+
+def bool_value(value: object) -> bool:
+    if isinstance(value, (bool, np.bool_)):
+        return bool(value)
+    return str(value).strip().lower() in {"1", "true", "yes"}
+
+
+def prediction_winner_details(
+    row: pd.Series | dict[str, object],
+) -> tuple[str, object, str]:
+    """Prefer deterministic model output when the simulated matchup is fixed."""
+    direct_winner = str(row_value(row, "direct_winner")).strip()
+    direct_probability = row_value(row, "direct_winner_probability")
+    direct_matchup_fixed = bool_value(row_value(row, "direct_matchup_fixed"))
+    if direct_winner and direct_matchup_fixed:
+        return direct_winner, direct_probability, "Direct model"
+    return (
+        str(row_value(row, "monte_carlo_winner", "winner_top")).strip(),
+        row_value(row, "monte_carlo_winner_probability", "winner_match_probability", "winner_probability"),
+        "Monte Carlo",
+    )
 
 
 def matchup_key(row: pd.Series | dict[str, object]) -> frozenset[str] | None:
@@ -357,8 +384,7 @@ def bracket_prediction_status(
             prediction = matching_prediction(row, prediction_by_match, prediction_by_matchup) if not prediction_brackets_by_round else None
         if prediction is None:
             prediction = row if actual is None else {}
-        predicted_winner = str(prediction.get("winner_top", ""))
-        predicted_probability = prediction.get("winner_match_probability", prediction.get("winner_probability", ""))
+        predicted_winner, predicted_probability, prediction_source = prediction_winner_details(prediction)
         if actual is None:
             status = "Ongoing"
             actual_winner = ""
@@ -376,7 +402,16 @@ def bracket_prediction_status(
                 **row,
                 "prediction_winner_top": predicted_winner,
                 "prediction_winner_probability": predicted_probability,
-                "prediction_winner_match_probability": prediction.get("winner_match_probability", ""),
+                "prediction_winner_match_probability": predicted_probability,
+                "prediction_source": prediction_source,
+                "prediction_monte_carlo_winner": prediction.get(
+                    "monte_carlo_winner",
+                    prediction.get("winner_top", ""),
+                ),
+                "prediction_monte_carlo_probability": prediction.get(
+                    "monte_carlo_winner_probability",
+                    prediction.get("winner_match_probability", prediction.get("winner_probability", "")),
+                ),
                 "prediction_team_a_top": prediction.get("team_a_top", ""),
                 "prediction_team_b_top": prediction.get("team_b_top", ""),
                 "prediction_snapshot": snapshot_labels_by_round.get(round_key, ""),
@@ -592,10 +627,8 @@ def round_by_round_accuracy(
                 prediction = matching_prediction(actual, prediction_by_match, prediction_by_matchup)
                 if prediction is None:
                     continue
-                predicted_winner = str(prediction.get("winner_top", ""))
-                confidence = float(
-                    prediction.get("winner_match_probability", prediction.get("winner_probability", 0.0)) or 0.0
-                )
+                predicted_winner, probability_value, _ = prediction_winner_details(prediction)
+                confidence = float(probability_value or 0.0)
                 is_correct = predicted_winner == str(actual.get("winner", ""))
                 correct += int(is_correct)
                 evaluated += 1
@@ -827,7 +860,7 @@ def update_forecast_data_with_progress(forecast_name: str, analysis_args: list[s
 
 
 def update_live_data_with_progress() -> tuple[bool, str]:
-    return update_forecast_data_with_progress("live", ["--live"])
+    return update_forecast_data_with_progress("live", ["--live", "--profile", "local"])
 
 
 def update_pre_knockout_data_with_progress() -> tuple[bool, str]:
@@ -841,6 +874,72 @@ ROUND_LABELS = {
     "semifinals": "Semifinals",
     "final": "Final",
 }
+
+
+def count_pair(value: object) -> tuple[int, int]:
+    """Parse compact accuracy values such as ``"7/8"`` into counts."""
+    text = str(value or "").strip()
+    if "/" not in text:
+        return 0, 0
+    correct_text, total_text = text.split("/", 1)
+    try:
+        return int(correct_text), int(total_text)
+    except ValueError:
+        return 0, 0
+
+
+def knockout_accuracy_for_dashboard(
+    selected_label: str,
+    selected_paths: dict[str, Path],
+    completed_knockout_matches: list[dict[str, object]],
+    live_results: pd.DataFrame | None,
+) -> pd.DataFrame:
+    """Return one accuracy row per knockout round for the selected forecast."""
+    if not completed_knockout_matches:
+        return pd.DataFrame()
+    if selected_label == "Live":
+        return round_by_round_accuracy(completed_knockout_matches, live_results)
+
+    bracket_path = selected_paths.get("bracket")
+    prediction_path = selected_paths.get("prediction_bracket")
+    if not bracket_path or not bracket_path.exists() or not prediction_path or not prediction_path.exists():
+        return pd.DataFrame()
+
+    source_bracket = pd.read_csv(bracket_path)
+    if selected_label == "Pre-knockout" and live_bracket_path.exists():
+        source_bracket = pd.read_csv(live_bracket_path)
+    prediction_bracket = pd.read_csv(prediction_path)
+    status_frame = bracket_prediction_status(
+        source_bracket,
+        completed_knockout_matches,
+        prediction_bracket,
+    )
+    if status_frame.empty:
+        return pd.DataFrame()
+
+    rows: list[dict[str, object]] = []
+    evaluated_statuses = {"Successfully predicted", "False predicted"}
+    for round_key in ROUND_SEQUENCE:
+        round_frame = status_frame[status_frame["round"].eq(round_key)]
+        if round_frame.empty:
+            continue
+        completed = int(round_frame["actual_winner"].astype(str).str.strip().ne("").sum())
+        evaluated = int(round_frame["prediction_status"].isin(evaluated_statuses).sum())
+        correct = int((round_frame["prediction_status"] == "Successfully predicted").sum())
+        rows.append(
+            {
+                "round": ROUND_LABELS.get(round_key, round_key),
+                "forecast_snapshot": selected_label,
+                "completed_matches": f"{completed}/{len(round_frame)}",
+                "evaluated_predictions": f"{evaluated}/{completed}" if completed else "",
+                "correct": f"{correct}/{evaluated}" if evaluated else "",
+                "winner_accuracy": correct / evaluated if evaluated else np.nan,
+                "avg_pick_share": np.nan,
+                "brier_score": np.nan,
+                "status": "Evaluated" if evaluated else "Pending",
+            }
+        )
+    return pd.DataFrame(rows)
 
 
 def format_probability(value: float) -> str:
@@ -1683,6 +1782,7 @@ forecast_options = {
         "bracket": live_bracket_path,
         "prediction_bracket": pre_knockout_bracket_path,
         "matches": live_match_probabilities_path,
+        "knockout_comparison": live_knockout_comparison_path,
     },
     "Pre-knockout": {
         "team": pre_knockout_simulation_path,
@@ -1691,6 +1791,7 @@ forecast_options = {
         "bracket": pre_knockout_bracket_path,
         "prediction_bracket": pre_knockout_bracket_path,
         "matches": pre_knockout_match_probabilities_path,
+        "knockout_comparison": pre_knockout_comparison_path,
     },
     "Pre-tournament": {
         "team": simulation_path,
@@ -1699,6 +1800,7 @@ forecast_options = {
         "bracket": bracket_path,
         "prediction_bracket": bracket_path,
         "matches": match_probabilities_path,
+        "knockout_comparison": knockout_comparison_path,
     },
 }
 forecast_descriptions = {
@@ -1814,17 +1916,231 @@ if selected_label == "Live":
     except Exception as exc:
         st.sidebar.warning(f"Reconstructed rolling snapshots unavailable: {exc}")
 
-prob_tab, match_tab, group_tab, bracket_tab, research_tab, registry_tab, backtest_tab = st.tabs(
+(
+    accuracy_tab,
+    prob_tab,
+    match_tab,
+    group_tab,
+    bracket_tab,
+    comparison_tab,
+    research_tab,
+    registry_tab,
+    backtest_tab,
+) = st.tabs(
     [
+        "Accuracy Dashboard",
         "Probabilities",
         "Match Probabilities",
         "Group Standings",
         "Knockout Bracket",
+        "Model vs Monte Carlo",
         "Research Evaluation",
         "Forecast Registry",
         "Backtests",
     ]
 )
+
+with accuracy_tab:
+    st.subheader("Prediction Accuracy Dashboard")
+    st.caption(
+        "A single view of exact group-position calls and completed knockout winner predictions. "
+        "Pending matches are excluded from the totals."
+    )
+    dashboard_knockout = knockout_accuracy_for_dashboard(
+        selected_label,
+        selected_paths,
+        actual_knockout_matches,
+        live_results_frame,
+    )
+
+    group_correct = int(group_accuracy_table["position_correct"].sum()) if "position_correct" in group_accuracy_table else 0
+    group_total = int(group_accuracy_table["position_correct"].notna().sum()) if "position_correct" in group_accuracy_table else 0
+    knockout_correct = 0
+    knockout_evaluated = 0
+    if not dashboard_knockout.empty:
+        for row in dashboard_knockout.itertuples(index=False):
+            correct, _ = count_pair(getattr(row, "correct", ""))
+            _, evaluated = count_pair(getattr(row, "evaluated_predictions", ""))
+            knockout_correct += correct
+            knockout_evaluated += evaluated
+
+    total_correct = group_correct + knockout_correct
+    total_evaluated = group_total + knockout_evaluated
+    metric_cols = st.columns(4)
+    metric_cols[0].metric("Total Correct", f"{total_correct}/{total_evaluated}")
+    metric_cols[1].metric(
+        "Overall Accuracy",
+        format_probability(total_correct / total_evaluated) if total_evaluated else "N/A",
+    )
+    metric_cols[2].metric("Group Stage", f"{group_correct}/{group_total}" if group_total else "N/A")
+    metric_cols[3].metric(
+        "Knockout",
+        f"{knockout_correct}/{knockout_evaluated}" if knockout_evaluated else "N/A",
+    )
+
+    dashboard_rows = [
+        {
+            "stage": "Group stage · exact positions",
+            "forecast_basis": "Pre-tournament",
+            "correct": group_correct,
+            "evaluated": group_total,
+            "accuracy": group_correct / group_total if group_total else np.nan,
+            "status": "Evaluated" if group_total else "Pending",
+        }
+    ]
+    if not dashboard_knockout.empty:
+        for row in dashboard_knockout.itertuples(index=False):
+            correct, _ = count_pair(getattr(row, "correct", ""))
+            _, evaluated = count_pair(getattr(row, "evaluated_predictions", ""))
+            dashboard_rows.append(
+                {
+                    "stage": str(getattr(row, "round", "Knockout")),
+                    "forecast_basis": str(getattr(row, "forecast_snapshot", selected_label)),
+                    "correct": correct,
+                    "evaluated": evaluated,
+                    "accuracy": getattr(row, "winner_accuracy", np.nan),
+                    "status": str(getattr(row, "status", "Pending")),
+                }
+            )
+    dashboard_frame = pd.DataFrame(dashboard_rows)
+    st.subheader("Accuracy by Stage")
+    styled_dashboard = (
+        dashboard_frame.style
+        .format({"accuracy": lambda value: "" if pd.isna(value) else f"{value:.1%}"})
+        .background_gradient(subset=["accuracy"], cmap="RdYlGn", vmin=0, vmax=1)
+    )
+    st.dataframe(styled_dashboard, width="stretch", hide_index=True)
+
+    chart_frame = dashboard_frame.set_index("stage")[["correct", "evaluated"]]
+    st.bar_chart(chart_frame)
+
+    st.subheader("Contextual Benchmark Comparison")
+    st.caption(
+        "The primary comparison uses the same knockout-advancement target. "
+        "Broader 1X2 references remain contextual and must not be compared directly."
+    )
+    model_knockout_accuracy = knockout_correct / knockout_evaluated if knockout_evaluated else np.nan
+    benchmark_frame = pd.DataFrame(
+        [
+            {
+                "system": "This model",
+                "accuracy": model_knockout_accuracy,
+                "sample": f"{knockout_correct}/{knockout_evaluated}" if knockout_evaluated else "N/A",
+                "target": "Binary: team advances",
+                "scope": "WC 2026 knockout; completed ties",
+                "outcome_rule": "ET and penalties included",
+                "comparison": "Reference",
+            },
+            {
+                "system": "Onside ML ensemble (2026)",
+                "accuracy": 24 / 28,
+                "sample": "24/28",
+                "target": "Binary: team advances",
+                "scope": "WC 2026 knockout; 28 decided ties",
+                "outcome_rule": "Pre-match; ET and penalties included",
+                "comparison": "Same metric; different sample",
+            },
+            {
+                "system": "Aithal & Bargavi (2023)",
+                "accuracy": 11 / 15,
+                "sample": "11/15",
+                "target": "Knockout match winner",
+                "scope": "WC 2022; individual knockout matches",
+                "outcome_rule": "Penalty handling not stated",
+                "comparison": "Closest; not exact",
+            },
+            {
+                "system": "ScoreGPT consensus (2026)",
+                "accuracy": 58 / 102,
+                "sample": "58/102",
+                "target": "Pre-match 1X2",
+                "scope": "WC 2026; all tracked fixtures",
+                "outcome_rule": "Final result; external rule",
+                "comparison": "Not comparable",
+            },
+            {
+                "system": "Grok 4.3 via ScoreGPT (2026)",
+                "accuracy": 0.693,
+                "sample": "88 graded",
+                "target": "Pre-match 1X2",
+                "scope": "WC 2026; rolling 30-day snapshot",
+                "outcome_rule": "Final result; external rule",
+                "comparison": "Not comparable",
+            },
+            {
+                "system": "Rahman (2020)",
+                "accuracy": 0.633,
+                "sample": "Not stated in abstract",
+                "target": "Football match outcome",
+                "scope": "WC 2018; published DNN study",
+                "outcome_rule": "Paper detail unavailable in preview",
+                "comparison": "Not comparable",
+            },
+            {
+                "system": "Squawka editorial/market pick (2026)",
+                "accuracy": 0.710,
+                "sample": "99 settled",
+                "target": "Winner pick / hit rate",
+                "scope": "WC 2026; daily market-informed picks",
+                "outcome_rule": "Not a disclosed ML protocol",
+                "comparison": "Not comparable",
+            },
+        ]
+    )
+    st.dataframe(
+        benchmark_frame.style
+        .format({"accuracy": lambda value: "" if pd.isna(value) else f"{value:.1%}"})
+        .background_gradient(subset=["accuracy"], cmap="RdYlGn", vmin=0, vmax=1),
+        width="stretch",
+        hide_index=True,
+    )
+    st.markdown(
+        "Sources: [ScoreGPT World Cup record](https://scoregpt.app/world-cup-2026), "
+        "[ScoreGPT Grok track record](https://scoregpt.app/accuracy/grok-4-3), "
+        "[Onside ML track record](https://onsidearena.com/world-cup-2026/model-record), "
+        "[Aithal and Bargavi paper](https://doi.org/10.21474/IJAR01/16481), "
+        "[Rahman paper](https://doi.org/10.1007/s42452-019-1821-5), "
+        "[Squawka record](https://www.squawka.com/us/soccer-predictions/). "
+        "External pages were checked on 2026-07-16 and may update their rolling records."
+    )
+    if knockout_evaluated:
+        st.info(
+            f"The current knockout score is {knockout_correct}/{knockout_evaluated} ({format_probability(model_knockout_accuracy)}). "
+            "This is knockout-advancement accuracy, not full-tournament pre-match 1X2 accuracy. "
+            "Onside is the closest current benchmark because it uses the same target and includes ET/penalties; "
+            "its published sample is 24/28, so the match universe is not identical yet."
+        )
+
+    with st.expander("Group-stage position details"):
+        if group_accuracy_table.empty:
+            st.info("Group-stage accuracy is not available yet.")
+        else:
+            st.dataframe(
+                group_accuracy_table,
+                width="stretch",
+                column_config={
+                    "position_correct": st.column_config.CheckboxColumn("position_correct"),
+                    "top_two_team_correct": st.column_config.CheckboxColumn("top_two_team_correct"),
+                    "top_two_slot_correct": st.column_config.CheckboxColumn("top_two_slot_correct"),
+                },
+            )
+
+    with st.expander("Knockout-round details"):
+        if dashboard_knockout.empty:
+            st.info("No knockout accuracy is available yet.")
+        else:
+            knockout_display = dashboard_knockout.copy()
+            knockout_display["winner_accuracy"] = knockout_display["winner_accuracy"] * 100
+            st.dataframe(
+                knockout_display,
+                width="stretch",
+                hide_index=True,
+                column_config={
+                    "winner_accuracy": st.column_config.NumberColumn("winner_accuracy", format="%.1f%%"),
+                    "avg_pick_share": st.column_config.NumberColumn("avg_pick_share", format="%.1f%%"),
+                    "brier_score": st.column_config.NumberColumn("brier_score", format="%.3f"),
+                },
+            )
 
 with prob_tab:
     st.subheader("Tournament Probabilities")
@@ -2104,8 +2420,8 @@ with bracket_tab:
                 key="bracket_zoom",
             )
         st.caption(
-            "Slot % is the chance a team occupies that bracket slot. Top winner % is the largest simulated winner share; "
-            "Head-to-head appears when both slots are fixed."
+            "Slot % is the chance a team occupies that bracket slot. Fixed unresolved matchups use the direct model; "
+            "uncertain paths use the largest Monte Carlo winner share."
         )
         render_bracket_chart(
             bracket,
@@ -2118,6 +2434,151 @@ with bracket_tab:
             st.dataframe(round_frame, width="stretch")
     else:
         st.info("Run the configured-bracket simulation to populate knockout predictions.")
+
+with comparison_tab:
+    st.subheader("Model vs Monte Carlo")
+    comparison_path = selected_paths.get("knockout_comparison") if selected_paths else None
+    comparison = read_csv_if_exists(comparison_path) if comparison_path else None
+    if comparison is None or comparison.empty:
+        st.info("Rebuild this forecast to generate direct-model and Monte Carlo diagnostics.")
+    else:
+        comparison = numeric_frame(
+            comparison,
+            {
+                "round",
+                "matchup",
+                "team_a_top",
+                "team_b_top",
+                "direct_winner",
+                "monte_carlo_winner",
+                "direct_matchup_fixed",
+                "direct_within_monte_carlo_ci",
+                "prediction_agreement",
+            },
+        )
+        comparison["direct_matchup_fixed"] = comparison["direct_matchup_fixed"].map(bool_value)
+        comparison["prediction_agreement"] = comparison["prediction_agreement"].map(bool_value)
+        comparison["direct_within_monte_carlo_ci"] = comparison["direct_within_monte_carlo_ci"].map(bool_value)
+        fixed_rows = comparison[comparison["direct_matchup_fixed"]]
+        inspected = fixed_rows if not fixed_rows.empty else comparison
+        labels = [
+            f"{str(row.round).replace('_', ' ').title()} · Match {int(row.match)} · {row.matchup}"
+            for row in inspected.itertuples(index=False)
+        ]
+        selected_matchup = st.selectbox("Matchup", labels, key="model_vs_monte_carlo_matchup")
+        selected_row = inspected.iloc[labels.index(selected_matchup)]
+        selected_matchup_fixed = bool(selected_row["direct_matchup_fixed"])
+
+        metric_cols = st.columns(3)
+        metric_cols[0].metric(
+            "Direct Model",
+            str(selected_row["direct_winner"]),
+        )
+        metric_cols[0].caption(
+            f"{format_probability(float(selected_row['direct_winner_probability']))} advance probability"
+        )
+        metric_cols[1].metric(
+            "Monte Carlo",
+            str(selected_row["monte_carlo_winner"]),
+        )
+        metric_cols[1].caption(
+            f"{format_probability(float(selected_row['monte_carlo_winner_probability']))} simulated frequency"
+        )
+        metric_cols[2].metric(
+            "Simulations" if selected_matchup_fixed else "Matchup Samples",
+            f"{int(selected_row['monte_carlo_sample_size']):,}",
+        )
+        diagnostics_cols = st.columns(2)
+        diagnostics_cols[0].metric(
+            "MCSE",
+            f"{float(selected_row['monte_carlo_standard_error']) * 100:.3f} pp",
+        )
+        diagnostics_cols[1].metric(
+            "Absolute Delta",
+            f"{float(selected_row['absolute_probability_delta']) * 100:.3f} pp",
+        )
+
+        team_a = str(selected_row["team_a_top"])
+        team_b = str(selected_row["team_b_top"])
+        probability_chart = pd.DataFrame(
+            {
+                "Direct model": [
+                    float(selected_row["direct_team_a_advance_probability"]),
+                    float(selected_row["direct_team_b_advance_probability"]),
+                ],
+                "Monte Carlo": [
+                    float(selected_row["monte_carlo_team_a_advance_probability"]),
+                    float(selected_row["monte_carlo_team_b_advance_probability"]),
+                ],
+            },
+            index=[team_a, team_b],
+        )
+        st.bar_chart(probability_chart)
+        st.caption(
+            "Direct 90-minute outcome: "
+            f"{team_a} win {format_probability(float(selected_row['direct_team_a_win_probability']))}, "
+            f"draw {format_probability(float(selected_row['direct_draw_probability']))}, "
+            f"{team_b} win {format_probability(float(selected_row['direct_team_b_win_probability']))}. "
+            "Knockout advancement assigns half of the draw mass to each team."
+        )
+
+        ci_lower = float(selected_row["monte_carlo_team_a_ci95_lower"])
+        ci_upper = float(selected_row["monte_carlo_team_a_ci95_upper"])
+        agreement = bool(selected_row["prediction_agreement"])
+        within_ci = bool(selected_row["direct_within_monte_carlo_ci"])
+        scope = "Fixed head-to-head" if selected_matchup_fixed else "Conditional top matchup"
+        st.caption(
+            f"{scope}. Monte Carlo 95% interval for {team_a}: "
+            f"{format_probability(ci_lower)}–{format_probability(ci_upper)}."
+        )
+        if not agreement:
+            st.warning(
+                "Winner flip detected: the finite Monte Carlo sample ranks a different team than the direct model. "
+                "The knockout bracket uses the direct model for fixed matchups."
+            )
+        elif within_ci:
+            st.success("Monte Carlo agrees with the direct winner and contains the direct probability within its 95% interval.")
+        else:
+            st.warning("The direct probability falls outside the Monte Carlo 95% interval; review the simulation run.")
+
+        comparison_display = comparison.copy()
+        comparison_display["round"] = comparison_display["round"].str.replace("_", " ").str.title()
+        comparison_display["direct_probability"] = comparison_display["direct_winner_probability"] * 100
+        comparison_display["simulation_probability"] = comparison_display["monte_carlo_winner_probability"] * 100
+        comparison_display["mcse_pp"] = comparison_display["monte_carlo_standard_error"] * 100
+        comparison_display["absolute_delta_pp"] = comparison_display["absolute_probability_delta"] * 100
+        st.subheader("Simulation Diagnostics")
+        st.dataframe(
+            comparison_display[
+                [
+                    "round",
+                    "match",
+                    "matchup",
+                    "direct_matchup_fixed",
+                    "direct_winner",
+                    "direct_probability",
+                    "monte_carlo_winner",
+                    "simulation_probability",
+                    "monte_carlo_sample_size",
+                    "mcse_pp",
+                    "absolute_delta_pp",
+                    "prediction_agreement",
+                    "direct_within_monte_carlo_ci",
+                ]
+            ],
+            width="stretch",
+            hide_index=True,
+            column_config={
+                "direct_matchup_fixed": st.column_config.CheckboxColumn("fixed matchup"),
+                "direct_probability": st.column_config.NumberColumn("direct probability", format="%.2f%%"),
+                "simulation_probability": st.column_config.NumberColumn("MC frequency", format="%.2f%%"),
+                "monte_carlo_sample_size": st.column_config.NumberColumn("simulations", format="%d"),
+                "mcse_pp": st.column_config.NumberColumn("MCSE (pp)", format="%.3f"),
+                "absolute_delta_pp": st.column_config.NumberColumn("absolute delta (pp)", format="%.3f"),
+                "prediction_agreement": st.column_config.CheckboxColumn("winner agrees"),
+                "direct_within_monte_carlo_ci": st.column_config.CheckboxColumn("direct inside 95% CI"),
+            },
+        )
 
 with research_tab:
     st.subheader("Research Evaluation")
