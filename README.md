@@ -236,7 +236,7 @@ Live mode is not automatic minute-by-minute score tracking. It changes when `pyt
 The dashboard includes:
 
 - team tournament probabilities
-- champion probability simulation intervals
+- champion and third-place probability simulation intervals
 - match-level group probability explorer
 - group position probabilities
 - FIFA-style knockout bracket chart
@@ -281,7 +281,7 @@ The project separates match prediction from tournament simulation:
 3. Match outcome models are validated on rolling historical World Cup windows.
 4. Baselines, ablations, nested model selection, and calibration diagnostics are written as reproducible CSV reports.
 5. The primary ML model converts team-strength, ranking, form, and context features into match-outcome probabilities.
-6. Monte Carlo simulations aggregate match probabilities into group, knockout, finalist, and champion probabilities.
+6. Monte Carlo simulations aggregate match probabilities into group, knockout, third-place, finalist, and champion probabilities.
 7. Forecast snapshots are versioned by cutoff, config, git commit, match probabilities, and tournament probabilities.
 
 The same leakage discipline, calibration-first model selection, and forecast registry pattern applies to operational forecasting systems beyond football, especially when predictions feed downstream simulations or decisions.

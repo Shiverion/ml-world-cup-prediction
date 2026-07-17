@@ -233,6 +233,70 @@ def test_simulate_tournament_detailed_returns_group_positions_and_bracket_rows()
     assert comparison.loc[comparison["match"] == 73, "prediction_agreement"].iloc[0]
 
 
+def test_configured_knockout_predicts_third_place_winner():
+    groups = [chr(ord("A") + index) for index in range(16)]
+    teams_by_group = {group: [f"{group}1", f"{group}2"] for group in groups}
+    round_of_32 = []
+    for pair_index in range(0, len(groups), 2):
+        left_group = groups[pair_index]
+        right_group = groups[pair_index + 1]
+        match_id = 73 + pair_index
+        round_of_32.extend(
+            [
+                {
+                    "match": match_id,
+                    "teams": [
+                        {"group": left_group, "position": 1},
+                        {"group": right_group, "position": 2},
+                    ],
+                },
+                {
+                    "match": match_id + 1,
+                    "teams": [
+                        {"group": right_group, "position": 1},
+                        {"group": left_group, "position": 2},
+                    ],
+                },
+            ]
+        )
+    round_of_16 = [
+        {"match": 89 + index, "winners_of": [73 + 2 * index, 74 + 2 * index]}
+        for index in range(8)
+    ]
+    quarterfinals = [
+        {"match": 97 + index, "winners_of": [89 + 2 * index, 90 + 2 * index]}
+        for index in range(4)
+    ]
+    bracket_config = {
+        "round_of_32": round_of_32,
+        "round_of_16": round_of_16,
+        "quarterfinals": quarterfinals,
+        "semifinals": [
+            {"match": 101, "winners_of": [97, 98]},
+            {"match": 102, "winners_of": [99, 100]},
+        ],
+        "third_place": [{"match": 103, "losers_of": [101, 102]}],
+        "final": [{"match": 104, "winners_of": [101, 102]}],
+    }
+
+    details = simulate_tournament_detailed(
+        teams_by_group,
+        lambda team_a, team_b, context=None: {"team_a_win": 1.0, "draw": 0.0, "team_b_win": 0.0},
+        n_simulations=1,
+        seed=1,
+        third_place_count=0,
+        knockout_bracket=bracket_config,
+    )
+
+    probabilities = details["team_probabilities"].set_index("team")
+    bracket = details["knockout_bracket"].set_index("match")
+    assert "third_place" in probabilities.columns
+    assert probabilities["third_place"].sum() == pytest.approx(1.0)
+    assert bracket.loc[103, "round"] == "third_place"
+    assert bracket.loc[103, "winner_top"] == bracket.loc[103, "team_a_top"]
+    assert probabilities.loc[bracket.loc[103, "winner_top"], "third_place"] == pytest.approx(1.0)
+
+
 def test_completed_knockout_match_winner_is_locked_into_later_rounds():
     teams_by_group = {group: [f"{group}{index}" for index in range(1, 5)] for group in ["A", "B"]}
     bracket_config = {

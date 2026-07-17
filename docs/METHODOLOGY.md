@@ -829,16 +829,16 @@ At the worst case `p=0.5`:
 
 `pp` means percentage points. The interval is a normal approximation around simulation frequency. It describes simulation sampling error, not uncertainty in model coefficients, data quality, lineup availability, or the true football process.
 
-### 15.5 Fixed-final fast path
+### 15.5 Locked-final fast path
 
-When every group and non-final knockout result is locked and only the final remains, the simulator does not replay the entire tournament 150,000 times. It:
+When every group and semifinal result is locked and the final and third-place match remain, the simulator does not replay the entire tournament 150,000 times. It:
 
 1. reconstructs all completed milestones once;
-2. evaluates the fixed final's direct advance probability once;
-3. samples the final champion count with a binomial draw;
-4. writes the same audit columns as the general simulation path.
+2. evaluates the fixed final and third-place match probabilities once;
+3. samples the champion and third-place counts with binomial draws;
+4. writes the same audit columns, including the `third_place` event, as the general simulation path.
 
-This is mathematically equivalent for the remaining fixed binary event and dramatically faster.
+This fast path is mathematically equivalent for the remaining fixed binary events and dramatically faster.
 
 ## 16. Simulation profiles
 
@@ -1075,7 +1075,7 @@ Each mode uses no suffix, `_pre_knockout`, or `_live`:
 
 | File family | Meaning |
 | --- | --- |
-| `team_probabilities_2026*.csv` | Group win, qualification, round reach, finalist, champion frequencies. |
+| `team_probabilities_2026*.csv` | Group win, qualification, round reach, third-place, finalist, and champion frequencies. |
 | `group_position_probabilities_2026*.csv` | Probability of each group finishing position. |
 | `predicted_knockout_bracket_2026*.csv` | Most frequent teams, slots, winners, and direct/MC diagnostics by match. |
 | `match_probabilities_2026*.csv` | Direct group-fixture 1X2 probabilities. |

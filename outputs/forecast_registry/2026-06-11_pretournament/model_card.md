@@ -3,7 +3,7 @@
 Forecast date: 2026-07-16
 Data cutoff: 2026-06-11T00:00:00
 Mode: pre_tournament
-Git commit: 7cb8aaa058720a3b847102fe2d77c3bb11838c8a
+Git commit: 8c7b27794f0d1ec2bc54db9e273a5928497ebf8d
 Model: logistic_plain_c0_5
 Simulation predictor: ml_outcome
 Number of simulations: 3000

@@ -1,7 +1,7 @@
 forecast_date: '2026-07-16'
 mode: pre_tournament
 data_cutoff: '2026-06-11T00:00:00'
-git_commit: 7cb8aaa058720a3b847102fe2d77c3bb11838c8a
+git_commit: 8c7b27794f0d1ec2bc54db9e273a5928497ebf8d
 model: logistic_plain_c0_5
 simulation_predictor: ml_outcome
 simulation_count: 3000

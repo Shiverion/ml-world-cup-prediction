@@ -48,7 +48,7 @@ from worldcup_prediction.simulator import (
 from worldcup_prediction.utils import ensure_columns, load_team_mapping, standardize_team_name
 
 
-KNOCKOUT_ROUND_SEQUENCE = ["round_of_32", "round_of_16", "quarterfinals", "semifinals", "final"]
+KNOCKOUT_ROUND_SEQUENCE = ["round_of_32", "round_of_16", "quarterfinals", "semifinals", "third_place", "final"]
 
 
 def resolve_project_path(path: str | Path, root: Path = PROJECT_ROOT) -> Path:
@@ -316,6 +316,8 @@ def _round_key_from_fixture_round(round_value: Any) -> str | None:
         return "quarterfinals"
     if "semi" in round_text:
         return "semifinals"
+    if "third" in round_text and "place" in round_text:
+        return "third_place"
     if round_text == "final":
         return "final"
     return None
@@ -385,7 +387,7 @@ def _configured_knockout_match_ids(bracket_config: Mapping[str, Any] | None) -> 
     if not bracket_config:
         return set()
     ids: set[int] = set()
-    for round_key in ["round_of_32", "round_of_16", "quarterfinals", "semifinals", "final"]:
+    for round_key in ["round_of_32", "round_of_16", "quarterfinals", "semifinals", "third_place", "final"]:
         for match in bracket_config.get(round_key, []):
             ids.add(int(match["match"]))
     return ids
@@ -405,6 +407,10 @@ def _configured_knockout_lookup(bracket_config: Mapping[str, Any] | None) -> dic
             sources = tuple(sorted(int(match_id) for match_id in match.get("winners_of", [])))
             if len(sources) == 2:
                 lookup[("winners_of", sources)] = int(match["match"])
+    for match in bracket_config.get("third_place", []):
+        sources = tuple(sorted(int(match_id) for match_id in match.get("losers_of", [])))
+        if len(sources) == 2:
+            lookup[("losers_of", sources)] = int(match["match"])
     return lookup
 
 
@@ -418,11 +424,17 @@ def _knockout_candidate_pools(
     bracket_config: Mapping[str, Any] | None,
     group_table: pd.DataFrame | None,
     third_place_count: int = 8,
-) -> tuple[dict[int, set[str]], dict[int, tuple[int, int]], dict[str, set[int]]]:
+) -> tuple[
+    dict[int, set[str]],
+    dict[int, tuple[int, int]],
+    dict[int, tuple[int, int]],
+    dict[str, set[int]],
+]:
     if not bracket_config:
-        return {}, {}, {}
+        return {}, {}, {}, {}
     pools: dict[int, set[str]] = {}
-    sources: dict[int, tuple[int, int]] = {}
+    winner_sources: dict[int, tuple[int, int]] = {}
+    loser_sources: dict[int, tuple[int, int]] = {}
     round_ids: dict[str, set[int]] = {}
 
     if group_table is not None and not group_table.empty:
@@ -431,12 +443,14 @@ def _knockout_candidate_pools(
             pools[match_id] = {str(match["team_a"]), str(match["team_b"])}
             round_ids.setdefault("round_of_32", set()).add(match_id)
 
-    for round_key in ["round_of_16", "quarterfinals", "semifinals", "final"]:
+    for round_key in ["round_of_16", "quarterfinals", "semifinals", "third_place", "final"]:
         for match in _round_match_configs(bracket_config, round_key):
             match_id = int(match["match"])
-            source_ids = tuple(int(source_id) for source_id in match.get("winners_of", []))
+            source_field = "losers_of" if round_key == "third_place" else "winners_of"
+            source_ids = tuple(int(source_id) for source_id in match.get(source_field, []))
             if len(source_ids) != 2:
                 continue
+            sources = loser_sources if round_key == "third_place" else winner_sources
             sources[match_id] = (source_ids[0], source_ids[1])
             round_ids.setdefault(round_key, set()).add(match_id)
             source_pool = set()
@@ -444,7 +458,7 @@ def _knockout_candidate_pools(
                 source_pool.update(pools.get(source_id, set()))
             if source_pool:
                 pools[match_id] = source_pool
-    return pools, sources, round_ids
+    return pools, winner_sources, loser_sources, round_ids
 
 
 def _match_id_from_candidate_pools(
@@ -453,6 +467,7 @@ def _match_id_from_candidate_pools(
     team_b: str,
     candidate_pools: Mapping[int, set[str]],
     source_matches: Mapping[int, tuple[int, int]],
+    loser_source_matches: Mapping[int, tuple[int, int]],
     round_ids: Mapping[str, set[int]],
 ) -> int | None:
     if round_key is None:
@@ -464,7 +479,7 @@ def _match_id_from_candidate_pools(
             if candidate_pools.get(match_id) == pair:
                 candidates.append(match_id)
             continue
-        sources = source_matches.get(match_id)
+        sources = loser_source_matches.get(match_id) if round_key == "third_place" else source_matches.get(match_id)
         if not sources:
             continue
         left_pool = candidate_pools.get(sources[0], set())
@@ -484,6 +499,7 @@ def _fixture_knockout_match_id(
     team_b: str | None = None,
     candidate_pools: Mapping[int, set[str]] | None = None,
     source_matches: Mapping[int, tuple[int, int]] | None = None,
+    loser_source_matches: Mapping[int, tuple[int, int]] | None = None,
     round_ids: Mapping[str, set[int]] | None = None,
 ) -> int | None:
     configured_ids = _configured_knockout_match_ids(bracket_config)
@@ -503,6 +519,7 @@ def _fixture_knockout_match_id(
             team_b,
             candidate_pools,
             source_matches or {},
+            loser_source_matches or {},
             round_ids or {},
         )
         if candidate is not None:
@@ -517,6 +534,14 @@ def _fixture_knockout_match_id(
             winners.append(int(value[1:]))
     if len(winners) == 2:
         match_id = lookup.get(("winners_of", tuple(sorted(winners))))
+        if match_id is not None:
+            return match_id
+    losers = []
+    for value in [slot_a, slot_b]:
+        if value.startswith("L") and value[1:].isdigit():
+            losers.append(int(value[1:]))
+    if len(losers) == 2:
+        match_id = lookup.get(("losers_of", tuple(sorted(losers))))
         if match_id is not None:
             return match_id
     slot_match_id = lookup.get(("slots", tuple(sorted([slot_a, slot_b]))))
@@ -577,7 +602,7 @@ def completed_knockout_matches_from_fixture_frame(
     ensure_columns(fixtures, ["round", "team_a", "team_b", "team_a_score", "team_b_score", "status"], "fixtures")
     knockout = fixtures[fixtures["round"].map(lambda value: _round_key_from_fixture_round(value) is not None)].copy()
     knockout = knockout.dropna(subset=["team_a", "team_b"])
-    candidate_pools, source_matches, round_ids = _knockout_candidate_pools(
+    candidate_pools, source_matches, loser_source_matches, round_ids = _knockout_candidate_pools(
         bracket_config,
         group_table,
         third_place_count=third_place_count,
@@ -600,6 +625,7 @@ def completed_knockout_matches_from_fixture_frame(
             team_b=team_b,
             candidate_pools=candidate_pools,
             source_matches=source_matches,
+            loser_source_matches=loser_source_matches,
             round_ids=round_ids,
         )
         if match_id is None:

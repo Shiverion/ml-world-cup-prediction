@@ -149,5 +149,7 @@ knockout_bracket:
   semifinals:
     - {match: 101, winners_of: [97, 98]}
     - {match: 102, winners_of: [99, 100]}
+  third_place:
+    - {match: 103, losers_of: [101, 102]}
   final:
     - {match: 104, winners_of: [101, 102]}

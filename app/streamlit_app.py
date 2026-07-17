@@ -442,6 +442,8 @@ def fixture_round_key(value: object) -> str | None:
         return "quarterfinals"
     if "semi" in text:
         return "semifinals"
+    if "third" in text and "place" in text:
+        return "third_place"
     if text == "final" or " final" in text:
         return "final"
     return None
@@ -866,13 +868,14 @@ def update_live_data_with_progress() -> tuple[bool, str]:
 def update_pre_knockout_data_with_progress() -> tuple[bool, str]:
     return update_forecast_data_with_progress("pre-knockout", ["--pre-knockout"])
 
-ROUND_SEQUENCE = ["round_of_32", "round_of_16", "quarterfinals", "semifinals", "final"]
+ROUND_SEQUENCE = ["round_of_32", "round_of_16", "quarterfinals", "semifinals", "third_place", "final"]
 ROUND_LABELS = {
     "round_of_32": "Round of 32",
     "round_of_16": "Round of 16",
     "quarterfinals": "Quarterfinals",
     "semifinals": "Semifinals",
     "final": "Final",
+    "third_place": "Third place",
 }
 
 
@@ -1144,7 +1147,7 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
     status_height = 52 if show_status else 0
     match_block_height = card_height + (status_gap + status_height if show_status else 0)
     board_width = 2100
-    board_height = 1620 if show_status else 1200
+    board_height = 1780 if show_status else 1380
     zoom = max(0.5, min(float(zoom), 1.6))
     zoomed_width = board_width * zoom
     zoomed_height = board_height * zoom
@@ -1182,6 +1185,7 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
         100: (95, 96),
         101: (97, 98),
         102: (99, 100),
+        103: (101, 102),
         104: (101, 102),
     }
     x_by_match = {
@@ -1192,6 +1196,7 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
         97: column_x["left_qf"],
         98: column_x["left_qf"],
         101: column_x["left_sf"],
+        103: column_x["final"],
         104: column_x["final"],
         102: column_x["right_sf"],
         99: column_x["right_qf"],
@@ -1208,6 +1213,8 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
             positions[source_b][1] + card_height / 2,
         ]
         positions[match_id] = (x_by_match[match_id], sum(source_centers) / 2 - card_height / 2)
+    if 103 in match_lookup and 104 in positions:
+        positions[103] = (column_x["final"], positions[104][1] + card_height + 44)
 
     def card_center(match_id: int) -> tuple[float, float]:
         left, top = positions[match_id]
@@ -1260,7 +1267,7 @@ def render_bracket_chart(bracket: pd.DataFrame, zoom: float = 1.0) -> None:
         ("Round of 16", column_x["left_r16"]),
         ("Quarterfinals", column_x["left_qf"]),
         ("Semifinal", column_x["left_sf"]),
-        ("Final", column_x["final"]),
+        ("Final / Third Place", column_x["final"]),
         ("Semifinal", column_x["right_sf"]),
         ("Quarterfinals", column_x["right_qf"]),
         ("Round of 16", column_x["right_r16"]),
@@ -2147,18 +2154,41 @@ with prob_tab:
     if selected_paths and selected_paths["team"].exists():
         probabilities = numeric_frame(pd.read_csv(selected_paths["team"]), {"team"})
         leader = probabilities.sort_values("champion", ascending=False).iloc[0]
-        metric_cols = st.columns(4)
+        third_place_leader = (
+            probabilities.sort_values("third_place", ascending=False).iloc[0]
+            if "third_place" in probabilities.columns
+            else None
+        )
+        metric_cols = st.columns(5)
         metric_cols[0].metric("Top Champion", str(leader["team"]))
         metric_cols[1].metric("Champion Probability", format_probability(leader["champion"]))
-        metric_cols[2].metric("Final Probability", format_probability(leader["reach_final"]))
-        metric_cols[3].metric("Advance From Group", format_probability(leader["advance_from_group"]))
+        if third_place_leader is not None:
+            metric_cols[2].metric("Top Third Place", str(third_place_leader["team"]))
+            metric_cols[3].metric("Third-Place Probability", format_probability(third_place_leader["third_place"]))
+        else:
+            metric_cols[2].metric("Top Third Place", "Not generated")
+            metric_cols[3].metric("Third-Place Probability", "N/A")
+        metric_cols[4].metric("Final Probability", format_probability(leader["reach_final"]))
+        if third_place_leader is None:
+            st.info("Rebuild the forecast to generate third-place probabilities.")
 
         ci_path = selected_paths.get("team_ci")
         ci_frame = read_csv_if_exists(ci_path) if ci_path else None
         if ci_frame is not None:
             ci_frame = numeric_frame(ci_frame, {"team"})
-            ci_columns = ["team", "champion_mean", "champion_p05", "champion_p50", "champion_p95"]
-            st.subheader("Champion Probability With Simulation Interval")
+            ci_columns = [
+                "team",
+                "champion_mean",
+                "champion_p05",
+                "champion_p50",
+                "champion_p95",
+                "third_place_mean",
+                "third_place_p05",
+                "third_place_p50",
+                "third_place_p95",
+            ]
+            ci_columns = [column for column in ci_columns if column in ci_frame.columns]
+            st.subheader("Champion and Third-Place Probability With Simulation Interval")
             st.dataframe(
                 ci_frame[ci_columns],
                 width="stretch",

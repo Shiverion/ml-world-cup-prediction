@@ -518,6 +518,7 @@ def _simulate_configured_knockout(
     completed_knockout_matches: Sequence[Mapping[str, Any]] | None = None,
 ) -> None:
     winners_by_match: dict[int, str] = {}
+    losers_by_match: dict[int, str] = {}
     completed_by_match = {
         int(match["match"]): match
         for match in completed_knockout_matches or []
@@ -528,6 +529,7 @@ def _simulate_configured_knockout(
         ("round_of_16", "reach_qf"),
         ("quarterfinals", "reach_sf"),
         ("semifinals", "reach_final"),
+        ("third_place", "third_place"),
         ("final", "champion"),
     ]
     stage_names = {
@@ -535,16 +537,35 @@ def _simulate_configured_knockout(
         "round_of_16": "round_of_16",
         "quarterfinals": "quarterfinal",
         "semifinals": "semifinal",
+        "third_place": "third_place",
         "final": "final",
     }
 
     for round_key, milestone in round_plan:
+        if round_key == "third_place" and not bracket_config.get("third_place"):
+            continue
         if round_key == "round_of_32":
             match_records = build_round_of_32_bracket(
                 group_table,
                 bracket_config,
                 third_place_count=third_place_count,
             )
+        elif round_key == "third_place":
+            match_records = []
+            for match in bracket_config.get("third_place", []):
+                source_matches = [int(match_id) for match_id in match.get("losers_of", [])]
+                missing = [match_id for match_id in source_matches if match_id not in losers_by_match]
+                if missing:
+                    raise ValueError(f"Configured third-place match references unknown loser match ids: {missing}")
+                if len(source_matches) != 2:
+                    raise ValueError("Configured third-place match must reference exactly two semifinal losers")
+                match_records.append(
+                    {
+                        "match": int(match["match"]),
+                        "team_a": losers_by_match[source_matches[0]],
+                        "team_b": losers_by_match[source_matches[1]],
+                    }
+                )
         else:
             match_records = []
             for match in bracket_config.get(round_key, []):
@@ -586,6 +607,8 @@ def _simulate_configured_knockout(
                     {"stage": stage_names[round_key], "match": match["match"]},
                 )
             winners_by_match[match_id] = winner
+            loser = team_b if winner == team_a else team_a
+            losers_by_match[match_id] = loser
             if winner in counts:
                 counts[winner][milestone] += 1
             if bracket_counts is not None:
@@ -875,6 +898,7 @@ def _simulate_locked_tournament_with_final_pending(
         "reach_qf",
         "reach_sf",
         "reach_final",
+        "third_place",
         "champion",
     ]
     counts = {team: {milestone: 0 for milestone in milestones} for team in all_teams}
@@ -893,6 +917,7 @@ def _simulate_locked_tournament_with_final_pending(
         "round_of_16": "reach_qf",
         "quarterfinals": "reach_sf",
         "semifinals": "reach_final",
+        "third_place": "third_place",
     }
     bracket_counts: dict[tuple[str, int], dict[str, Counter[str]]] = defaultdict(
         lambda: {
@@ -940,6 +965,62 @@ def _simulate_locked_tournament_with_final_pending(
     counts[team_a]["champion"] = team_a_wins
     counts[team_b]["champion"] = team_b_wins
 
+    third_place_matches = list(knockout_bracket.get("third_place", []))
+    if third_place_matches:
+        if len(third_place_matches) != 1:
+            raise ValueError("Configured third-place round must contain exactly one match")
+        third_config = third_place_matches[0]
+        third_match_id = int(third_config["match"])
+        third_completed = completed_by_match.get(third_match_id)
+        third_sources = [int(match_id) for match_id in third_config.get("losers_of", [])]
+        if len(third_sources) != 2:
+            raise ValueError("Configured third-place match must reference exactly two semifinal losers")
+
+        def semifinal_loser(match_id: int) -> str:
+            match = completed_by_match.get(match_id)
+            if match is None:
+                raise ValueError(f"Missing completed semifinal for third-place match: {match_id}")
+            match_team_a = str(match["team_a"])
+            match_team_b = str(match["team_b"])
+            match_winner = str(match["winner"])
+            if match_winner == match_team_a:
+                return match_team_b
+            if match_winner == match_team_b:
+                return match_team_a
+            raise ValueError(f"Completed match winner is not one of its teams: {match_id}")
+
+        if third_completed:
+            third_team_a = str(third_completed["team_a"])
+            third_team_b = str(third_completed["team_b"])
+            third_winner = str(third_completed["winner"])
+            if third_winner in counts:
+                counts[third_winner]["third_place"] = n_simulations
+        else:
+            third_team_a = semifinal_loser(third_sources[0])
+            third_team_b = semifinal_loser(third_sources[1])
+            third_probability_a = advancement_probability(
+                predict_match(third_team_a, third_team_b, {"stage": "third_place", "match": third_match_id})
+            )
+            third_team_a_wins = int(rng.binomial(n_simulations, third_probability_a))
+            third_team_b_wins = n_simulations - third_team_a_wins
+            counts[third_team_a]["third_place"] = third_team_a_wins
+            counts[third_team_b]["third_place"] = third_team_b_wins
+
+        third_key = ("third_place", third_match_id)
+        bracket_counts[third_key]["team_a"][third_team_a] = n_simulations
+        bracket_counts[third_key]["team_b"][third_team_b] = n_simulations
+        bracket_counts[third_key]["appearance"][third_team_a] += n_simulations
+        bracket_counts[third_key]["appearance"][third_team_b] += n_simulations
+        bracket_counts[third_key]["matchup"][(third_team_a, third_team_b)] = n_simulations
+        if third_completed:
+            bracket_counts[third_key]["winner"][third_winner] = n_simulations
+            bracket_counts[third_key]["matchup_winner"][(third_team_a, third_team_b, third_winner)] = n_simulations
+        else:
+            bracket_counts[third_key]["winner"][third_team_a] = counts[third_team_a]["third_place"]
+            bracket_counts[third_key]["winner"][third_team_b] = counts[third_team_b]["third_place"]
+            bracket_counts[third_key]["matchup_winner"][(third_team_a, third_team_b, third_team_a)] = counts[third_team_a]["third_place"]
+            bracket_counts[third_key]["matchup_winner"][(third_team_a, third_team_b, third_team_b)] = counts[third_team_b]["third_place"]
+
     return {
         "team_probabilities": _probability_rows(counts, n_simulations),
         "group_positions": _group_position_rows(position_counts, teams_by_group, n_simulations),
@@ -984,6 +1065,7 @@ def simulate_tournament_detailed(
         "reach_qf",
         "reach_sf",
         "reach_final",
+        "third_place",
         "champion",
     ]
     counts = {team: {milestone: 0 for milestone in milestones} for team in all_teams}
@@ -1040,7 +1122,21 @@ def simulate_tournament_detailed(
             ]
             current_pairs = pairs
             for round_name, milestone in round_names:
+                round_pairs = list(current_pairs)
                 winners = simulate_knockout_round(current_pairs, predict_match, rng, round_name)
+                if round_name == "semifinal" and len(winners) == 2:
+                    semifinal_losers = [
+                        team_b if winner == team_a else team_a
+                        for (team_a, team_b), winner in zip(round_pairs, winners, strict=False)
+                    ]
+                    third_place_winner = simulate_knockout_match(
+                        semifinal_losers[0],
+                        semifinal_losers[1],
+                        predict_match,
+                        rng,
+                        {"stage": "third_place"},
+                    )
+                    counts[third_place_winner]["third_place"] += 1
                 for team in winners:
                     counts[team][milestone] += 1
                 if len(winners) == 1:

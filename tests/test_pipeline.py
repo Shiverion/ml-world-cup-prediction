@@ -505,6 +505,31 @@ def test_completed_knockout_matches_marks_penalties_only_when_explicit():
     assert matches[0]["team_b_penalties"] == 3
 
 
+def test_completed_knockout_matches_extracts_third_place_match():
+    fixtures = pd.DataFrame(
+        [
+            {
+                "match": 103,
+                "round": "Third-place match",
+                "team_a": "A",
+                "team_b": "B",
+                "team_a_score": 2,
+                "team_b_score": 1,
+                "status": "completed",
+            }
+        ]
+    )
+
+    matches = completed_knockout_matches_from_fixture_frame(
+        fixtures,
+        {"third_place": [{"match": 103, "losers_of": [101, 102]}]},
+    )
+
+    assert matches[0]["round"] == "third_place"
+    assert matches[0]["match"] == 103
+    assert matches[0]["winner"] == "A"
+
+
 def test_fixture_frame_for_reconstructed_round_hides_future_rounds():
     fixtures = pd.DataFrame(
         [
