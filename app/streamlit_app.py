@@ -15,6 +15,8 @@ import streamlit.components.v1 as components
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src"
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 if str(SRC) not in sys.path:
     sys.path.insert(0, str(SRC))
 
@@ -83,6 +85,35 @@ def read_csv_if_exists(path: Path) -> pd.DataFrame | None:
     if not path.exists():
         return None
     return pd.read_csv(path)
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def fetch_live_results() -> pd.DataFrame:
+    """Fetch the public 2026 fixture/results feed when the local CSV is absent."""
+    from scripts.download_data import world_cup_2026_matches
+
+    return world_cup_2026_matches()
+
+
+def load_live_results_frame(path: Path) -> tuple[pd.DataFrame | None, bool, str | None]:
+    """Load live results from disk, or bootstrap them from the public feed."""
+    if path.exists():
+        return pd.read_csv(path), False, None
+
+    try:
+        frame = fetch_live_results()
+        if frame.empty:
+            return None, False, "The public 2026 fixture feed returned no matches."
+        try:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            frame.to_csv(path, index=False)
+        except OSError:
+            # The deployed filesystem may be read-only; the in-memory frame is enough
+            # for the dashboard and keeps the fallback useful in that environment.
+            pass
+        return frame, True, None
+    except Exception as exc:
+        return None, False, str(exc)
 
 
 def numeric_frame(frame: pd.DataFrame, skip_columns: set[str] | None = None) -> pd.DataFrame:
@@ -1894,8 +1925,10 @@ try:
     bracket_config = context["bracket_config"]
     team_mapping = context["team_mapping"]
     third_place_total = int(read_yaml(tournament_config_path).get("third_place_qualifiers", 8))
-    if live_results_path.exists():
-        live_results_frame = pd.read_csv(live_results_path)
+    live_results_frame, bootstrapped_live_results, live_results_error = load_live_results_frame(live_results_path)
+    if live_results_frame is not None:
+        if bootstrapped_live_results:
+            st.sidebar.caption("Loaded latest live fixture feed for deployed evaluation.")
         actual_group_matches = completed_group_matches_from_fixture_frame(live_results_frame, team_mapping)
         actual_groups = group_table_from_completed_matches(teams_by_group, actual_group_matches)
         actual_knockout_matches = completed_knockout_matches_from_fixture_frame(
@@ -1918,6 +1951,8 @@ try:
             actual_groups,
             third_place_total,
         )
+    elif live_results_error:
+        st.sidebar.warning(f"Live results unavailable: {live_results_error}")
 except Exception as exc:
     st.sidebar.warning(f"Actual-results evaluation unavailable: {exc}")
 
