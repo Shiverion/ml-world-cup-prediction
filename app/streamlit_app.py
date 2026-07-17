@@ -174,6 +174,18 @@ def probability_column_config(columns: list[str]) -> dict[str, st.column_config.
     }
 
 
+def accuracy_styler(frame: pd.DataFrame) -> object:
+    """Format accuracy tables without requiring optional matplotlib at runtime."""
+    styler = frame.style.format(
+        {"accuracy": lambda value: "" if pd.isna(value) else f"{value:.1%}"}
+    )
+    try:
+        import matplotlib  # noqa: F401
+    except ImportError:
+        return styler
+    return styler.background_gradient(subset=["accuracy"], cmap="RdYlGn", vmin=0, vmax=1)
+
+
 def actual_score_display(actual: dict[str, object] | pd.Series) -> str:
     score = f"{actual['team_a_score']}-{actual['team_b_score']}"
     if bool(actual.get("decided_by_penalties", False)):
@@ -2011,11 +2023,7 @@ with accuracy_tab:
             )
     dashboard_frame = pd.DataFrame(dashboard_rows)
     st.subheader("Accuracy by Stage")
-    styled_dashboard = (
-        dashboard_frame.style
-        .format({"accuracy": lambda value: "" if pd.isna(value) else f"{value:.1%}"})
-        .background_gradient(subset=["accuracy"], cmap="RdYlGn", vmin=0, vmax=1)
-    )
+    styled_dashboard = accuracy_styler(dashboard_frame)
     st.dataframe(styled_dashboard, width="stretch", hide_index=True)
 
     chart_frame = dashboard_frame.set_index("stage")[["correct", "evaluated"]]
@@ -2095,9 +2103,7 @@ with accuracy_tab:
         ]
     )
     st.dataframe(
-        benchmark_frame.style
-        .format({"accuracy": lambda value: "" if pd.isna(value) else f"{value:.1%}"})
-        .background_gradient(subset=["accuracy"], cmap="RdYlGn", vmin=0, vmax=1),
+        accuracy_styler(benchmark_frame),
         width="stretch",
         hide_index=True,
     )
