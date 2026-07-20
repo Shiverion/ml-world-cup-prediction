@@ -846,7 +846,7 @@ def _simulate_locked_tournament_with_final_pending(
     completed_group_matches: Sequence[Mapping[str, Any]] | None,
     completed_knockout_matches: Sequence[Mapping[str, Any]] | None,
 ) -> dict[str, pd.DataFrame] | None:
-    """Vectorize the final-only state after every preceding fixture is locked."""
+    """Vectorize a locked tournament when only the final may still be pending."""
     if not knockout_bracket or not completed_group_matches or not completed_knockout_matches:
         return None
     expected_group_matches = len(generate_round_robin_matches(teams_by_group))
@@ -864,8 +864,7 @@ def _simulate_locked_tournament_with_final_pending(
         for match in completed_knockout_matches
         if "match" in match
     }
-    if final_match_id in completed_by_match:
-        return None
+    completed_final = completed_by_match.get(final_match_id)
 
     configured_non_final_ids = {
         int(match["match"])
@@ -947,10 +946,16 @@ def _simulate_locked_tournament_with_final_pending(
         if milestone and match_winner in counts:
             counts[match_winner][milestone] = n_simulations
 
-    final_probability_a = advancement_probability(
-        predict_match(team_a, team_b, {"stage": "final", "match": final_match_id})
-    )
-    team_a_wins = int(rng.binomial(n_simulations, final_probability_a))
+    if completed_final is not None:
+        final_winner = str(completed_final["winner"])
+        if final_winner not in {team_a, team_b}:
+            raise ValueError(f"Completed final winner is not one of its teams: {final_match_id}")
+        team_a_wins = n_simulations if final_winner == team_a else 0
+    else:
+        final_probability_a = advancement_probability(
+            predict_match(team_a, team_b, {"stage": "final", "match": final_match_id})
+        )
+        team_a_wins = int(rng.binomial(n_simulations, final_probability_a))
     team_b_wins = n_simulations - team_a_wins
     final_key = ("final", final_match_id)
     bracket_counts[final_key]["team_a"][team_a] = n_simulations

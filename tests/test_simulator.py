@@ -389,6 +389,59 @@ def test_final_only_simulation_vectorizes_locked_tournament():
     assert champions.sum() == pytest.approx(1.0)
 
 
+def test_completed_final_is_vectorized_as_locked_tournament():
+    teams_by_group = {
+        "A": ["A1", "A2", "A3", "A4"],
+        "B": ["B1", "B2", "B3", "B4"],
+    }
+    completed_group_matches = []
+    for group, teams in teams_by_group.items():
+        for index, team_a in enumerate(teams):
+            for team_b in teams[index + 1 :]:
+                completed_group_matches.append(
+                    {
+                        "group": group,
+                        "team_a": team_a,
+                        "team_b": team_b,
+                        "team_a_score": 1,
+                        "team_b_score": 0,
+                    }
+                )
+    bracket_config = {
+        "round_of_32": [
+            {"match": 73, "teams": [{"group": "A", "position": 1}, {"group": "B", "position": 2}]},
+            {"match": 74, "teams": [{"group": "B", "position": 1}, {"group": "A", "position": 2}]},
+        ],
+        "final": [{"match": 104, "winners_of": [73, 74]}],
+    }
+    completed_knockout_matches = [
+        {"round": "round_of_32", "match": 73, "team_a": "A1", "team_b": "B2", "winner": "A1"},
+        {"round": "round_of_32", "match": 74, "team_a": "B1", "team_b": "A2", "winner": "B1"},
+        {"round": "final", "match": 104, "team_a": "A1", "team_b": "B1", "winner": "B1"},
+    ]
+
+    def unexpected_predictor(*_args, **_kwargs):
+        raise AssertionError("A fully completed tournament should not call the predictor")
+
+    details = simulate_tournament_detailed(
+        teams_by_group,
+        unexpected_predictor,
+        n_simulations=150_000,
+        seed=42,
+        third_place_count=0,
+        knockout_bracket=bracket_config,
+        completed_group_matches=completed_group_matches,
+        completed_knockout_matches=completed_knockout_matches,
+    )
+
+    final = details["knockout_bracket"].set_index("match").loc[104]
+    champions = details["team_probabilities"].set_index("team")["champion"]
+    assert final["winner_top"] == "B1"
+    assert final["monte_carlo_sample_size"] == 150_000
+    assert champions.loc["B1"] == pytest.approx(1.0)
+    assert champions.sum() == pytest.approx(1.0)
+
+
 def test_rank_group_orders_by_points_goal_difference_and_goals_for():
     records = [
         GroupRecord("A", "G", points=6, goals_for=3, goals_against=1),
