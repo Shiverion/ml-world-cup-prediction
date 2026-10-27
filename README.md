@@ -29,6 +29,69 @@ This repository is built to show a forecasting workflow, not only a football das
 
 The 2026 FIFA World Cup started on June 11, 2026. To produce a true pre-tournament forecast, configure a data cutoff before that date. If you include matches after kickoff, treat the output as a live-updating forecast instead.
 
+## System Design
+
+The full methodology is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md). This section summarises the system: requirements, the batch-forecast architecture, the live update loop, and trade-offs.
+
+### Requirements
+
+**Functional**
+- Produce match win/draw/loss probabilities and full 48-team tournament outcome probabilities for the 2026 World Cup.
+- Support three forecast modes: pre-tournament, pre-knockout, and live (lock completed results, resimulate the rest).
+- Publish results to a Streamlit dashboard and keep an auditable record of every forecast.
+
+**Non-functional**
+- **No leakage**: every time-dependent feature is computed strictly before the match it predicts; validation uses rolling World Cup windows (2002–2022).
+- **Probability quality over accuracy**: selection by log loss, with Brier, RPS, and calibration reported.
+- **Reproducibility**: each forecast snapshot stores its config, git commit, and model card.
+- **Zero-ops hosting**: GitHub Actions and Streamlit Community Cloud only.
+
+### Architecture
+
+```text
+ Public feeds (results, FIFA rankings, 2026 fixtures)
+     │ scripts/download_data.py
+     ▼
+ cleaning.py (schema checks) ─► elo.py (pre-match Elo) ─► features.py (rankings, form, rest, context)
+     │
+     ├─► backtest.py: rolling World Cup windows ─► metrics.py / calibration.py / research.py
+     │       baselines · ablations · nested backtests ─► model selection (logistic_plain_c0_5)
+     │
+     └─► simulator.py: group tables + tie-breakers ─► Annex C third-place mapping (495 cases)
+             ─► fixed knockout bracket ─► Monte Carlo over deterministic seeds
+             (dev / local / publication = 150,000 runs)
+     ▼
+ outputs/forecast_registry/<date>_<mode>/  config.yaml · git_commit.txt · model_card.md
+                                           match, group, team, and bracket probabilities
+     ▼
+ app/streamlit_app.py (Streamlit Community Cloud)
+```
+
+### Live Update Loop
+
+1. A GitHub Actions schedule runs every 30 minutes across the tournament dates (with `concurrency` set so runs never overlap).
+2. It downloads the latest fixtures and results, then `scripts/live_update_gate.py` decides whether anything changed inside the update window.
+3. If so, the pipeline locks completed results, blends the frozen pre-knockout anchor with the current live model, and resimulates only unresolved matches.
+4. The new registry snapshot is committed back to the repository; Streamlit redeploys from the commit.
+
+Pre-tournament snapshots are never rewritten, so the original forecast stays accountable after the tournament starts.
+
+### Trade-offs
+
+| Decision | Benefit | Cost |
+| --- | --- | --- |
+| Regularized multinomial logistic as the primary model | Best average log loss; stable and interpretable | Little headroom over strong Elo baselines |
+| Outcome-conditional scoreline sampling | Keeps goal-difference tie-breakers available | No team-specific expected goals in the default path |
+| Git as the forecast store | Free, versioned, auditable | Repository grows with every snapshot |
+| Scheduled polling every 30 minutes | Simple, no webhooks | Up to 30 minutes of staleness after a result |
+
+### What to Revisit as It Grows
+
+- Add a Dixon–Coles or bivariate Poisson score model to estimate team-specific goal rates.
+- Move snapshots to object storage (or a small database) and keep only manifests in Git.
+- Trigger updates from a results webhook instead of polling.
+- Parallelize Monte Carlo runs (multiprocessing or vectorized simulation) for faster publication-grade artefacts.
+
 ## Project Structure
 
 ```text
