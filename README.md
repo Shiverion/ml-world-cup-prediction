@@ -48,23 +48,43 @@ The full methodology is in [docs/METHODOLOGY.md](docs/METHODOLOGY.md). This sect
 
 ### Architecture
 
-```text
- Public feeds (results, FIFA rankings, 2026 fixtures)
-     │ scripts/download_data.py
-     ▼
- cleaning.py (schema checks) ─► elo.py (pre-match Elo) ─► features.py (rankings, form, rest, context)
-     │
-     ├─► backtest.py: rolling World Cup windows ─► metrics.py / calibration.py / research.py
-     │       baselines · ablations · nested backtests ─► model selection (logistic_plain_c0_5)
-     │
-     └─► simulator.py: group tables + tie-breakers ─► Annex C third-place mapping (495 cases)
-             ─► fixed knockout bracket ─► Monte Carlo over deterministic seeds
-             (dev / local / publication = 150,000 runs)
-     ▼
- outputs/forecast_registry/<date>_<mode>/  config.yaml · git_commit.txt · model_card.md
-                                           match, group, team, and bracket probabilities
-     ▼
- app/streamlit_app.py (Streamlit Community Cloud)
+```mermaid
+flowchart TD
+    subgraph External["External inputs"]
+        Feeds(["Public feeds<br/>results, rankings, 2026 fixtures"])
+    end
+
+    subgraph Preparation["Data preparation"]
+        Download["scripts/download_data.py"]
+        Clean["cleaning.py<br/>schema checks"]
+        Elo["elo.py<br/>pre-match Elo"]
+        Features["features.py<br/>rankings, form, rest, context"]
+    end
+
+    subgraph Validation["Validation and selection"]
+        Backtest["Rolling World Cup backtests"]
+        Reports["Metrics and research<br/>baselines, ablations, nested backtests"]
+        Selection["Model selection<br/>logistic_plain_c0_5"]
+    end
+
+    subgraph Simulation["Tournament simulation"]
+        Simulator["Group tables and tie-breakers"]
+        Annex["Annex C mapping<br/>495 cases"]
+        Bracket["Fixed knockout bracket"]
+        MonteCarlo["Monte Carlo simulation<br/>deterministic seeds"]
+    end
+
+    subgraph Delivery["Forecast delivery"]
+        Registry[("Forecast registry<br/>config, commit, model card<br/>forecast probabilities")]
+        Dashboard["Streamlit dashboard<br/>Community Cloud"]
+    end
+
+    Feeds --> Download --> Clean --> Elo --> Features
+    Features --> Backtest --> Reports --> Selection
+    Features --> Simulator
+    Selection --> Simulator
+    Simulator --> Annex --> Bracket --> MonteCarlo
+    MonteCarlo --> Registry --> Dashboard
 ```
 
 ### Live Update Loop
